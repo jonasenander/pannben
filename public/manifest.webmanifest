@@ -2,6 +2,7 @@
   "name": "Pannben",
   "short_name": "Pannben",
   "description": "Personal training log",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

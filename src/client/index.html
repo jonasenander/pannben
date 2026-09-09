@@ -7,6 +7,14 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- iOS ignores the manifest's display mode on older versions and is
+         inconsistent about it even on newer ones. These legacy tags are what
+         actually strip the browser chrome once the app is on the home screen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Pannben" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#E7E9EC" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#080A0D" media="(prefers-color-scheme: dark)" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
