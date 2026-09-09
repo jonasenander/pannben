@@ -42,7 +42,7 @@ same reason.
 
 ```sh
 npm install          # also installs the pre-commit privacy gate
-npm run dev          # API on :8080, Vite on :5173 with /api proxied
+npm run dev          # API on :8225, Vite on :5173 with /api proxied
 npm test             # data layer
 npm run build        # client + server into dist/
 ```
@@ -57,7 +57,7 @@ interface. Nothing is published to the LAN or the internet.
 ```sh
 cp .env.example .env          # fill in your own values; .env is gitignored
 docker compose up -d
-tailscale serve --bg https / http://127.0.0.1:8080
+tailscale serve --bg https / http://127.0.0.1:8225
 ```
 
 The app is then at `https://<nas>.<tailnet>.ts.net`, with a real certificate —

@@ -3,7 +3,7 @@
 # The published port is pinned to loopback: nothing on the LAN can reach it.
 # Tailscale Serve on the host proxies 443 on the tailnet interface to it:
 #
-#   tailscale serve --bg https / http://127.0.0.1:8080
+#   tailscale serve --bg https / http://127.0.0.1:8225
 #
 # `serve` is tailnet-scoped. `funnel` — the command that would publish to the
 # internet — is not used here.
@@ -14,16 +14,16 @@ services:
     container_name: pannben
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${PANNBEN_PORT:-8080}:8080"
+      - "127.0.0.1:${PANNBEN_HOST_PORT:-8225}:8225"
     volumes:
       - "${PANNBEN_DATA_DIR:?set PANNBEN_DATA_DIR in .env}:/data"
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
       PANNBEN_DATA_DIR: /data
-      PANNBEN_PORT: "8080"
+      PANNBEN_PORT: "8225"
     healthcheck:
       test:
-        ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:8225/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 4s
       retries: 3

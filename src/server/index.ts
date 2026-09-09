@@ -11,7 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
 
 const DATA_DIR = process.env.PANNBEN_DATA_DIR ?? join(root, "data");
-const PORT = Number(process.env.PANNBEN_PORT ?? 8080);
+const PORT = Number(process.env.PANNBEN_PORT ?? 8225);
 const ZONE = process.env.TZ ?? "Europe/Stockholm";
 // Loopback by default. Tailscale Serve fronts this; the container never binds
 // the LAN interface. See docs/decisions/0002-transport-and-access.md.

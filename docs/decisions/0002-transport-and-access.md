@@ -22,7 +22,7 @@ Two constraints pulled against each other:
 
 - The container's published port is pinned to `127.0.0.1` in compose. Nothing
   outside the host reaches it directly.
-- `tailscale serve --bg https / http://127.0.0.1:8080` makes tailscaled listen
+- `tailscale serve --bg https / http://127.0.0.1:8225` makes tailscaled listen
   on 443 bound to the `tailscale0` interface only, proxying to the container.
   The LAN interface is never bound.
 - Access is gated at the WireGuard layer: a device without a registered key
@@ -38,6 +38,27 @@ policy permission. It is not used.
 **Prerequisites:** MagicDNS and HTTPS Certificates enabled for the tailnet;
 Tailscale installed as the Synology DSM package so `serve` runs on the host
 rather than inside a sidecar container.
+
+## Port choice
+
+The host port is **8225**, not 8080. This is collision avoidance, not hardening:
+a socket bound to `127.0.0.1` is unreachable from the LAN whatever its number,
+and any process already on the NAS enumerates it with one `ss -ltnp`. Port
+obscurity is not a control here — Tailscale is. But 8080 is the single most
+contested port on a Synology (Web Station, Portainer, and a long tail of
+containers all default to it), and losing the race shows up as a container that
+quietly fails to start after a reboot.
+
+Two variables so the two sides cannot be confused for one another:
+
+| Variable | Side | Default |
+|---|---|---|
+| `PANNBEN_HOST_PORT` | published on the host, what Serve proxies to | `8225` |
+| `PANNBEN_PORT` | what the process listens on inside the container | `8225` |
+
+They match so there is one number to remember. Only the host one ever needs
+changing; the container's port lives in its own network namespace and cannot
+collide with anything.
 
 ## Alternatives considered
 
