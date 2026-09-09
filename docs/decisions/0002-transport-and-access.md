@@ -22,9 +22,11 @@ Two constraints pulled against each other:
 
 - The container's published port is pinned to `127.0.0.1` in compose. Nothing
   outside the host reaches it directly.
-- `tailscale serve --bg https / http://127.0.0.1:8225` makes tailscaled listen
+- `sudo tailscale serve --bg http://127.0.0.1:8225` makes tailscaled listen
   on 443 bound to the `tailscale0` interface only, proxying to the container.
-  The LAN interface is never bound.
+  The LAN interface is never bound. (`--bg` implies HTTPS on 443 at path `/`;
+  Tailscale before ~1.62 required the longer `serve --bg https / <target>`,
+  which newer builds reject outright.)
 - Access is gated at the WireGuard layer: a device without a registered key
   cannot complete a handshake, so there is no reachable socket to attack. There
   is no login page to brute-force because there is no login page.

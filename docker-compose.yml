@@ -3,7 +3,10 @@
 # The published port is pinned to loopback: nothing on the LAN can reach it.
 # Tailscale Serve on the host proxies 443 on the tailnet interface to it:
 #
-#   tailscale serve --bg https / http://127.0.0.1:8225
+#   sudo tailscale serve --bg http://127.0.0.1:8225
+#
+# (--bg implies HTTPS on 443 at path /. Tailscale before ~1.62 wanted the
+# longer `serve --bg https / <target>`; newer builds reject that form.)
 #
 # `serve` is tailnet-scoped. `funnel` — the command that would publish to the
 # internet — is not used here.
