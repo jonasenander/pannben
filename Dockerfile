@@ -7,7 +7,10 @@ WORKDIR /app
 # better-sqlite3 compiles a native addon; alpine needs the toolchain for it.
 RUN apk add --no-cache python3 make g++
 
+# scripts/ comes first: package.json's "prepare" hook runs during `npm ci`,
+# so the file it invokes has to exist before the install, not after.
 COPY package.json package-lock.json* ./
+COPY scripts ./scripts
 RUN npm ci
 
 COPY . .

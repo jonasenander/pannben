@@ -1,0 +1,22 @@
+# The build context must never carry the live database, snapshots, or
+# screenshots of real training data into an image layer.
+data/
+backups/
+screenshots/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+pannben-export-*.json
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+.vite/
+.git/
+.github/
+docs/
+*.md
+!README.md
