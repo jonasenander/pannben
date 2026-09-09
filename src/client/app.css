@@ -1,0 +1,71 @@
+/* Pannben design system — see docs/decisions/0003-design-system.md.
+   Radius means grouping. Colour means state. Elevation means attention. */
+
+:root {
+  --ground:#E7E9EC; --surface:#FFFFFF; --surface-raised:#F8F9FA; --surface-inset:#EEF1F4;
+  --ink:#14171B; --ink-secondary:#4B535E; --ink-muted:#5F6772;
+  --line:#D0D5DB; --line-strong:#AEB7C1;
+  --accent:#1F5FA6; --accent-strong:#174C88; --accent-soft:#DFEAF6; --accent-ink:#FFFFFF;
+  --good:#2E7D4F; --warning:#9B6908; --danger:#C0392B;
+
+  /* Metric taxonomy. Validated for deuteranopia separation and >=3:1 on both
+     surfaces; a badge always carries its text label, never colour alone. */
+  --m-total:#1F5FA6; --m-body:#C0392B; --m-bodyplus:#6B4E9E;
+  --m-db:#2E7D4F; --m-cardio:#B8860B; --m-hold:#069AA8;
+
+  --shadow-card:0 1px 2px rgba(16,20,26,.06),0 5px 16px rgba(16,20,26,.07);
+  --shadow-active:0 1px 2px rgba(16,20,26,.08),0 8px 22px rgba(16,20,26,.10);
+
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px; --s8:32px;
+  --r-control:8px; --r-row:10px; --r-group:12px; --r-card:16px; --r-pill:999px;
+
+  --f-display:"Archivo",system-ui,sans-serif;
+  --f-ui:"Barlow Semi Condensed","Archivo",system-ui,sans-serif;
+  --f-data:"Roboto Mono",ui-monospace,monospace;
+
+  color-scheme: light dark;
+}
+
+/* Dark is its own palette, not an inversion. Hierarchy comes from surface
+   steps and borders rather than large shadows. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:#080A0D; --surface:#15191E; --surface-raised:#1B2026; --surface-inset:#11151A;
+    --ink:#F0F2F4; --ink-secondary:#AAB2BC; --ink-muted:#7A8592;
+    --line:#293039; --line-strong:#3B4652;
+    --accent:#4389D0; --accent-strong:#56A0E8; --accent-soft:#172B3E; --accent-ink:#080A0D;
+    --good:#43A66C; --warning:#D08A18; --danger:#E05A4E;
+    --m-total:#3E7FC4; --m-body:#D4574A; --m-bodyplus:#8E72C6;
+    --m-db:#3E9463; --m-cardio:#C07818; --m-hold:#1BA5B4;
+    --shadow-card:0 1px 2px rgba(0,0,0,.35);
+    --shadow-active:0 6px 20px rgba(0,0,0,.32);
+  }
+}
+:root[data-theme="dark"] {
+  --ground:#080A0D; --surface:#15191E; --surface-raised:#1B2026; --surface-inset:#11151A;
+  --ink:#F0F2F4; --ink-secondary:#AAB2BC; --ink-muted:#7A8592;
+  --line:#293039; --line-strong:#3B4652;
+  --accent:#4389D0; --accent-strong:#56A0E8; --accent-soft:#172B3E; --accent-ink:#080A0D;
+  --good:#43A66C; --warning:#D08A18; --danger:#E05A4E;
+  --m-total:#3E7FC4; --m-body:#D4574A; --m-bodyplus:#8E72C6;
+  --m-db:#3E9463; --m-cardio:#C07818; --m-hold:#1BA5B4;
+  --shadow-card:0 1px 2px rgba(0,0,0,.35);
+  --shadow-active:0 6px 20px rgba(0,0,0,.32);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 16px;
+  line-height: 23px;
+  -webkit-font-smoothing: antialiased;
+  /* room for the phone's home indicator when installed */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

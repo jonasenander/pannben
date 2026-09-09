@@ -1,0 +1,48 @@
+# Add this service to the NAS stack. Values come from .env — see .env.example.
+#
+# The published port is pinned to loopback: nothing on the LAN can reach it.
+# Tailscale Serve on the host proxies 443 on the tailnet interface to it:
+#
+#   tailscale serve --bg https / http://127.0.0.1:8080
+#
+# `serve` is tailnet-scoped. `funnel` — the command that would publish to the
+# internet — is not used here.
+
+services:
+  pannben:
+    image: ghcr.io/jonasenander/pannben:latest
+    container_name: pannben
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PANNBEN_PORT:-8080}:8080"
+    volumes:
+      - "${PANNBEN_DATA_DIR:?set PANNBEN_DATA_DIR in .env}:/data"
+    environment:
+      TZ: "${TZ:-Europe/Stockholm}"
+      PANNBEN_DATA_DIR: /data
+      PANNBEN_PORT: "8080"
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 4s
+      retries: 3
+      start_period: 10s
+
+  # Nightly VACUUM INTO snapshot, kept for 14 days, for Hyper Backup to collect.
+  pannben-backup:
+    image: ghcr.io/jonasenander/pannben:latest
+    container_name: pannben-backup
+    restart: unless-stopped
+    depends_on: [pannben]
+    volumes:
+      - "${PANNBEN_DATA_DIR:?set PANNBEN_DATA_DIR in .env}:/data"
+    environment:
+      TZ: "${TZ:-Europe/Stockholm}"
+      PANNBEN_DATA_DIR: /data
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      'while true; do
+         sleep $$(( $$(date -d "tomorrow 03:00" +%s 2>/dev/null || date -v+1d -j -f "%H:%M" "03:00" +%s) - $$(date +%s) ));
+         node scripts/backup.mjs || echo "backup failed";
+       done'

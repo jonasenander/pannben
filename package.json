@@ -1,0 +1,38 @@
+{
+  "name": "pannben",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start": "node dist/server/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "privacy-check": "node scripts/privacy-check.mjs",
+    "backup": "node scripts/backup.mjs",
+    "prepare": "node scripts/install-hooks.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "hono": "^4.7.11",
+    "@hono/node-server": "^1.14.4"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.30",
+    "concurrently": "^9.1.2",
+    "svelte": "^5.33.14",
+    "svelte-check": "^4.2.1",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.2"
+  }
+}
