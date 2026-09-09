@@ -28,6 +28,20 @@ function scan(content: string): { code: number; out: string } {
   }
 }
 
+/**
+ * Secret-shaped fixtures are assembled at runtime. A complete `ghp_...` or
+ * `tskey-...` literal in this file trips gitleaks and GitHub secret scanning,
+ * which cannot tell a test fixture from a real credential — and allowlisting
+ * the file would mask a genuine leak here later. Splitting the prefix off
+ * defeats the scanners' patterns while still giving privacy-check the intact
+ * string to find, because it scans the temp file we write, not this source.
+ */
+const fake = {
+  githubToken: ["ghp", "_", "AbCdEf0123456789AbCdEf0123456789AbCd"].join(""),
+  tailscaleKey: ["tskey", "-auth-aBcDeF-0123456789abcdef"].join(""),
+  privateKey: ["-----BEGIN", " OPENSSH PRIVATE KEY", "-----"].join(""),
+};
+
 describe("privacy-check catches", () => {
   const caught: [string, string][] = [
     ["tailnet hostname", "host: my-nas.tail1a2b3.ts.net"], // privacy-check:allow synthetic test fixture
@@ -37,9 +51,9 @@ describe("privacy-check catches", () => {
     ["Synology share path", "path: /volume1/docker/pannben"], // privacy-check:allow synthetic test fixture
     ["NAS model number", "model: DS923+"], // privacy-check:allow synthetic test fixture
     ["email address", "me: someone@example.com"], // privacy-check:allow synthetic test fixture
-    ["Tailscale auth key", "key: tskey-auth-aBcDeF-0123456789abcdef"], // privacy-check:allow synthetic test fixture
-    ["GitHub token", "tok: ghp_AbCdEf0123456789AbCdEf0123456789AbCd"], // privacy-check:allow synthetic test fixture
-    ["private key block", "-----BEGIN OPENSSH PRIVATE KEY-----"], // privacy-check:allow synthetic test fixture
+    ["Tailscale auth key", `key: ${fake.tailscaleKey}`],
+    ["GitHub token", `tok: ${fake.githubToken}`],
+    ["private key block", fake.privateKey],
   ];
   for (const [rule, line] of caught) {
     it(`${rule}: ${line.slice(0, 34)}`, () => {
