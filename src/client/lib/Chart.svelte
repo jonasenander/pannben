@@ -1,12 +1,12 @@
 <script lang="ts">
   import { formatNumber } from "./api.js";
-  import type { SeriesPoint } from "./api.js";
+  import type { ChartPoint } from "./api.js";
 
   let {
     points, metricKey, unit, trend = null, size = "full", label = "",
     empty = "Nothing logged yet.",
   }: {
-    points: SeriesPoint[];
+    points: ChartPoint[];
     metricKey: string;
     unit: string;
     trend?: { from: number; to: number } | null;
@@ -42,8 +42,16 @@
 
   const plotted = $derived.by<Plotted[]>(() => {
     const usable = points
-      .map((p, index) => ({ index, date: p.date, value: p.values[metricKey] ?? null }))
-      .filter((p): p is { index: number; date: string; value: number } => p.value !== null);
+      .map((p, index) => ({
+        index,
+        date: p.date,
+        // A body metric carries the full timestamp, so two readings on one day
+        // are two points rather than one dot drawn twice.
+        at: p.at ?? `${p.date}T12:00:00Z`,
+        value: p.values[metricKey] ?? null,
+      }))
+      .filter((p): p is { index: number; date: string; at: string; value: number } =>
+        p.value !== null);
     if (usable.length === 0) return [];
 
     const values = usable.map((p) => p.value);
@@ -59,7 +67,7 @@
     hi += span * 0.08;
     lo -= span * 0.08;
 
-    const times = usable.map((p) => Date.parse(`${p.date}T12:00:00Z`));
+    const times = usable.map((p) => Date.parse(p.at));
     const first = times[0]!;
     const last = times.at(-1)!;
     const width = W - PAD.left - PAD.right;

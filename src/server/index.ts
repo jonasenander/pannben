@@ -9,6 +9,7 @@ import { systemClock } from "../data/clock.js";
 import { exportAll, exportSummary } from "../data/export.js";
 import { importAll, ImportError } from "../data/import.js";
 import { statsRoutes, favouriteRoutes } from "./routes/stats.js";
+import { bodyRoutes } from "./routes/body.js";
 import { exerciseRoutes } from "./routes/exercises.js";
 import { programRoutes } from "./routes/programs.js";
 import { sessionRoutes, setRoutes, loggedExerciseRoutes } from "./routes/sessions.js";
@@ -62,6 +63,7 @@ app.route("/api/sets", setRoutes(db, systemClock));
 app.route("/api/logged-exercises", loggedExerciseRoutes(db, systemClock));
 app.route("/api/stats", statsRoutes(db));
 app.route("/api/favourites", favouriteRoutes(db, systemClock));
+app.route("/api/body", bodyRoutes(db, systemClock));
 
 app.get("/api/export", (c) => {
   const stamp = systemClock.today(ZONE);
