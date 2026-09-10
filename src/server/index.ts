@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { openDb, health } from "../data/db.js";
 import { systemClock } from "../data/clock.js";
 import { exportAll, exportSummary } from "../data/export.js";
+import { importAll, ImportError } from "../data/import.js";
 import { exerciseRoutes } from "./routes/exercises.js";
 import { programRoutes } from "./routes/programs.js";
 import { sessionRoutes, setRoutes, loggedExerciseRoutes } from "./routes/sessions.js";
@@ -56,6 +57,31 @@ app.get("/api/export", (c) => {
 });
 
 app.get("/api/export/summary", (c) => c.json(exportSummary(db)));
+
+/**
+ * Replace everything with the contents of an export.
+ *
+ * Not queued through the outbox: a restore is a deliberate, destructive act
+ * done while looking at the screen, and its result — or its refusal — has to
+ * arrive now rather than as a banner some seconds later. The whole thing is
+ * one transaction, so a rejected file leaves the database exactly as it was.
+ */
+app.post("/api/import", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (body === null) return c.json({ error: "expected a JSON export file" }, 400);
+  try {
+    const result = importAll(db, body, systemClock);
+    console.error(JSON.stringify({
+      level: "info", msg: "import applied",
+      schemaVersion: result.schema_version, exportedAt: result.exported_at,
+      rows: result.rows,
+    }));
+    return c.json(result);
+  } catch (err) {
+    if (err instanceof ImportError) return c.json({ error: err.message }, 400);
+    throw err;
+  }
+});
 
 // The built client. In dev, Vite serves this and proxies /api here instead.
 const clientDir = join(root, "dist/client");
