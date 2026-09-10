@@ -72,3 +72,79 @@ export async function saveExercise(exercise: Exercise): Promise<void> {
   const body = { ...exercise, updated_at: new Date().toISOString() };
   await enqueue("PUT", `/api/exercises/${exercise.id}`, body);
 }
+
+// ---------------------------------------------------------------- programs
+
+export type BlockType = "single" | "superset";
+
+export interface ProgramEntry {
+  id: string;
+  exercise_id: string;
+  target_sets: number;
+  exercise_name?: string;
+  metric_type?: MetricType;
+}
+
+export interface ProgramBlock {
+  id: string;
+  type: BlockType;
+  entries: ProgramEntry[];
+}
+
+export interface Program {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  deleted_at: string | null;
+  blocks: ProgramBlock[];
+}
+
+export interface ProgramSummary {
+  id: string;
+  name: string;
+  archived_at: string | null;
+  blocks: number;
+  planned_sets: number;
+}
+
+export async function fetchPrograms(
+  include: Include,
+): Promise<{ data: ProgramSummary[]; stale: boolean }> {
+  const key = `programs:${include}`;
+  try {
+    const res = await fetch(`/api/programs?include=${include}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { programs } = (await res.json()) as { programs: ProgramSummary[] };
+    await cachePut(key, programs);
+    return { data: programs, stale: false };
+  } catch (err) {
+    const cached = await cacheGet<ProgramSummary[]>(key);
+    if (cached) return { data: cached, stale: true };
+    throw err;
+  }
+}
+
+/**
+ * Saved as one document. Reordering touches every position at once, so a
+ * whole-tree write keeps it atomic and leaves a single queued entry.
+ *
+ * Structural saves go straight to the server rather than through the outbox:
+ * the server validates the shape (a single block holds one exercise, a superset
+ * needs two), and a rejection has to reach the person while the editor is still
+ * open and fixable — not surface later as a dismissed banner.
+ */
+export async function saveProgram(program: Program): Promise<Program> {
+  const body = { ...program, updated_at: new Date().toISOString() };
+  const res = await fetch(`/api/programs/${program.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(detail.error ?? `server returned ${res.status}`);
+  }
+  return (await res.json()) as Program;
+}
