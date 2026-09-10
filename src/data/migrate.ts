@@ -59,5 +59,5 @@ export function schemaVersion(db: Database): number {
 export function parseMigrationName(filename: string): { version: number; name: string } {
   const match = /^(\d+)[._-](.+)\.sql$/.exec(filename);
   if (!match) throw new Error(`migration filename must be <number>_<name>.sql, got: ${filename}`);
-  return { version: Number(match[1]), name: match[2] };
+  return { version: Number(match[1]), name: match[2]! };
 }

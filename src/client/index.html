@@ -7,14 +7,23 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- iOS ignores the manifest's display mode on older versions and is
+         inconsistent about it even on newer ones. These legacy tags are what
+         actually strip the browser chrome once the app is on the home screen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Pannben" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#E7E9EC" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#080A0D" media="(prefers-color-scheme: dark)" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Barlow+Semi+Condensed:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap"
-    />
+    <!-- Vendored, not linked from Google: the app has to look right in a
+         basement with no signal, and a cold open should not phone home.
+         Regenerate with scripts/fetch-fonts.mjs. -->
+    <link rel="preload" href="/fonts/archivo-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/barlow-semi-condensed-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/roboto-mono-500.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/fonts/fonts.css" />
   </head>
   <body>
     <div id="app"></div>

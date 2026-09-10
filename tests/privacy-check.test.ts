@@ -66,7 +66,7 @@ describe("privacy-check catches", () => {
 
 describe("privacy-check allows", () => {
   const allowed: [string, string][] = [
-    ["loopback", "bind 127.0.0.1:8080"],
+    ["loopback", "bind 127.0.0.1:8225"],
     ["all interfaces", "host 0.0.0.0"],
     ["placeholder host", "PANNBEN_HOSTNAME=your-nas.your-tailnet.ts.net"],
     ["docs placeholder", "open https://<nas>.<tailnet>.ts.net"],

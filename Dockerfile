@@ -26,7 +26,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     PANNBEN_DATA_DIR=/data \
-    PANNBEN_PORT=8080 \
+    PANNBEN_PORT=8225 \
     PANNBEN_HOST=0.0.0.0
 
 # Inside the container we bind all interfaces; the container's *published* port
@@ -46,10 +46,10 @@ COPY --from=build /app/package.json ./package.json
 RUN mkdir -p /data && chown -R pannben:pannben /data /app
 USER pannben
 VOLUME ["/data"]
-EXPOSE 8080
+EXPOSE 8225
 
 HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PANNBEN_PORT||8080)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PANNBEN_PORT||8225)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/server/index.js"]
