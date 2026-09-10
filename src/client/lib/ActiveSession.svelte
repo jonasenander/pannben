@@ -4,9 +4,13 @@
   import Badge from "./Badge.svelte";
   import { uuidv7 } from "./uuid.js";
   import {
-    fetchActiveSession, logSet, setExerciseNote, finishSession, formatDuration,
+    fetchActiveSession, logSet, setExerciseNote, finishSession, removeSession,
+    formatDuration,
     type SessionView, type SessionBlock, type LoggedExercise, type LoggedSet,
   } from "./api.js";
+  import {
+    currentRound, roundsPlanned, blockDone, openRounds, canAdvance,
+  } from "../../data/rounds.js";
   import { flush } from "./outbox.js";
 
   let { onfinished }: { onfinished: () => void } = $props();
@@ -15,12 +19,27 @@
   let error = $state<string | null>(null);
   let elapsed = $state("00:00");
   let finishing = $state(false);
+  let discarding = $state(false);
   let notes = $state("");
+
+  /**
+   * Rounds moved to by tapping **Next round** rather than by closing the round
+   * before. Keyed by block, and reset whenever the session reloads, because a
+   * forced round is a decision about right now — not something to persist.
+   */
+  let forced = $state<Record<string, number>>({});
 
   export async function reload(): Promise<void> {
     try {
       session = await fetchActiveSession();
       if (session) notes = session.notes;
+      // A round forced past what is now logged is spent.
+      forced = Object.fromEntries(
+        Object.entries(forced).filter(([id, round]) => {
+          const b = session?.blocks.find((x) => x.id === id);
+          return b ? round > currentRound(b) && round < roundsPlanned(b) : false;
+        }),
+      );
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -40,52 +59,34 @@
     return () => clearInterval(t);
   });
 
-  /** Which round a superset block is on: one past the deepest logged round. */
-  const roundOf = (block: SessionBlock): number =>
-    block.type !== "superset"
-      ? 0
-      : Math.max(
-          0,
-          ...block.exercises.map((e) =>
-            e.sets.length === 0 ? 0 : Math.max(...e.sets.map((s) => s.round_index + 1)),
-          ),
-        );
-
-  const roundsPlanned = (block: SessionBlock) =>
-    Math.max(...block.exercises.map((e) => e.target_sets), 1);
-
   /**
    * The rows to render, as data rather than index arithmetic over the DOM.
    *
-   * Deriving set_index from the render position was wrong: rows persist across
-   * reloads, so a stale position wrote two sets at index 0. Each row now
-   * carries its own index and finds its logged set by matching that index,
-   * which also survives a set being deleted out of the middle.
+   * Ordering and rounds come from `src/data/rounds.ts`, which is tested
+   * without a browser — this used to be inline arithmetic here, and it was
+   * wrong in a way no test could see: see docs/decisions/0010.
    */
   interface Row { setIndex: number; roundIndex: number; logged: LoggedSet | undefined }
 
-  function rowsFor(ex: LoggedExercise, block: SessionBlock, done: boolean): Row[] {
+  function rowsFor(ex: LoggedExercise, block: SessionBlock): Row[] {
     if (block.type === "superset") {
-      const rounds = roundOf(block) + (done ? 0 : 1);
-      return Array.from({ length: Math.max(rounds, 1) }, (_, r) => ({
+      const open = openRounds(block, ex, { forcedRound: forced[block.id] });
+      const rounds = [...new Set([...ex.sets.map((s) => s.round_index), ...open])]
+        .sort((a, b) => a - b);
+      return rounds.map((r) => ({
         setIndex: r,
         roundIndex: r,
         logged: ex.sets.find((s) => s.round_index === r),
       }));
     }
     const highest = ex.sets.reduce((m, s) => Math.max(m, s.set_index + 1), 0);
-    const count = Math.max(ex.target_sets, highest + (done ? 0 : 1));
+    const count = Math.max(ex.target_sets, highest + (blockDone(block) ? 0 : 1));
     return Array.from({ length: count }, (_, i) => ({
       setIndex: i,
       roundIndex: 0,
       logged: ex.sets.find((s) => s.set_index === i),
     }));
   }
-
-  const blockDone = (b: SessionBlock) =>
-    b.type === "superset"
-      ? roundOf(b) >= roundsPlanned(b)
-      : b.exercises.every((e) => e.sets.length >= e.target_sets);
 
   const currentIndex = $derived(
     session ? Math.max(0, session.blocks.findIndex((b) => !blockDone(b))) : 0,
@@ -111,6 +112,34 @@
     await flush();
   }
 
+  /** Move the whole block on, leaving any unlogged row of this round unlogged. */
+  function nextRound(block: SessionBlock) {
+    const at = forced[block.id] ?? currentRound(block);
+    if (!canAdvance(block, forced[block.id])) return;
+    forced = { ...forced, [block.id]: at + 1 };
+  }
+
+  /**
+   * Abandon a session started by mistake.
+   *
+   * Soft: the rows stay in the database and in every export, they just leave
+   * history and the charts. The partial unique index ignores deleted rows, so
+   * the active slot frees immediately and a new session can start.
+   */
+  async function discard() {
+    if (!session) return;
+    await removeSession(session.id);
+    await flush();
+    onfinished();
+  }
+
+  const loggedCount = $derived(
+    session
+      ? session.blocks.reduce(
+          (n, b) => n + b.exercises.reduce((m, e) => m + e.sets.length, 0), 0)
+      : 0,
+  );
+
   async function finish() {
     if (!session) return;
     await flush();
@@ -134,7 +163,7 @@
   <SyncBar />
 
   {#each session.blocks as block, bi (block.id)}
-    {@const round = roundOf(block)}
+    {@const round = forced[block.id] ?? currentRound(block)}
     {@const rounds = roundsPlanned(block)}
     {@const done = blockDone(block)}
     <!-- Past quiet, current strong, future neutral. The accent rule marks
@@ -167,7 +196,7 @@
           {/if}
 
           <div class="sets">
-            {#each rowsFor(ex, block, done) as row (ex.id + ":" + row.setIndex)}
+            {#each rowsFor(ex, block) as row (ex.id + ":" + row.roundIndex + ":" + row.setIndex)}
               <SetRow
                 metricType={ex.metric_type}
                 setIndex={row.setIndex}
@@ -185,6 +214,14 @@
             onchange={(e) => saveNote(ex, (e.currentTarget as HTMLInputElement).value)} />
         </div>
       {/each}
+
+      {#if block.type === "superset" && !done && canAdvance(block, forced[block.id])}
+        <!-- The round advances by itself once every exercise logs. This is for
+             deliberately leaving one out: an unlogged row is simply not logged. -->
+        <button class="next-round" onclick={() => nextRound(block)}>
+          Next round → {Math.min(round + 2, rounds)} of {rounds}
+        </button>
+      {/if}
     </section>
   {/each}
 
@@ -201,14 +238,42 @@
         <button class="btn" onclick={finish}>Finish</button>
       </div>
     </div>
+  {:else if discarding}
+    <div class="confirm danger">
+      <p>Discard <strong>{session.program_name ?? "this session"}</strong>?</p>
+      <p class="hint">
+        {loggedCount === 0
+          ? "Nothing has been logged yet."
+          : `${loggedCount} set${loggedCount === 1 ? "" : "s"} logged. They leave history and charts, but stay in the database and in every export.`}
+      </p>
+      <div class="row">
+        <button class="btn ghost" onclick={() => (discarding = false)}>Keep going</button>
+        <button class="btn danger" onclick={discard}>Discard</button>
+      </div>
+    </div>
   {:else}
     <button class="btn" onclick={() => (finishing = true)}>Finish session</button>
+    <button class="btn ghost quiet" onclick={() => (discarding = true)}>Discard session</button>
   {/if}
 {:else}
   <p class="hint">No session in progress.</p>
 {/if}
 
 <style>
+  /* Advancing the block is not closing a set: outline, not filled, and it sits
+     under the exercises it applies to rather than among the set actions. */
+  .next-round {
+    width: 100%; min-height: 44px; margin-top: var(--s2);
+    border: 1px solid var(--line-strong); border-radius: var(--r-row);
+    background: transparent; color: var(--ink-secondary);
+    font-family: var(--f-display); font-size: 15px; font-weight: 600;
+  }
+
+  /* Discarding is rare and destructive: quiet until it is asked for. */
+  .btn.ghost.quiet { color: var(--ink-muted); font-size: 15px; height: 44px; }
+  .confirm.danger { border-color: var(--danger); }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
   .head { display: flex; align-items: center; gap: var(--s3); }
   .head .grow { flex: 1; min-width: 0; }
   .head b { font-family: var(--f-display); font-size: 20px; line-height: 24px;

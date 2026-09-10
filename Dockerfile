@@ -24,10 +24,15 @@ RUN npm ci --omit=dev
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+# Which build this is, so Settings can answer "am I running the new one?".
+# Defaults to "dev" for a local `docker build` with no --build-arg.
+ARG PANNBEN_BUILD=dev
+
 ENV NODE_ENV=production \
     PANNBEN_DATA_DIR=/data \
     PANNBEN_PORT=8225 \
-    PANNBEN_HOST=0.0.0.0
+    PANNBEN_HOST=0.0.0.0 \
+    PANNBEN_BUILD=$PANNBEN_BUILD
 
 # Inside the container we bind all interfaces; the container's *published* port
 # is pinned to loopback in compose, and Tailscale Serve fronts it.

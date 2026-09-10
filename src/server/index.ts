@@ -23,6 +23,15 @@ const ZONE = process.env.TZ ?? "Europe/Stockholm";
 // the LAN interface. See docs/decisions/0002-transport-and-access.md.
 const HOST = process.env.PANNBEN_HOST ?? "127.0.0.1";
 
+/**
+ * Which build this is, stamped in at image build time.
+ *
+ * `npm_package_version` is "0.1.0" forever, so until now there was no way to
+ * answer "am I running the new one?" from the phone at all — which is exactly
+ * why a stale service worker went unnoticed for four phases.
+ */
+const BUILD = process.env.PANNBEN_BUILD ?? "dev";
+
 const db = openDb({
   file: join(DATA_DIR, "pannben.db"),
   migrationsDir: join(root, "migrations"),
@@ -35,6 +44,7 @@ app.get("/api/health", (c) => {
   return c.json({
     ok: true,
     version: process.env.npm_package_version ?? "0.1.0",
+    build: BUILD,
     schemaVersion: h.schemaVersion,
     dbBytes: h.dbBytes,
     tables: h.tables,
@@ -89,6 +99,24 @@ app.post("/api/import", async (c) => {
 // The built client. In dev, Vite serves this and proxies /api here instead.
 const clientDir = join(root, "dist/client");
 if (existsSync(clientDir)) {
+  /**
+   * The entry points must be revalidated; everything else is content-hashed.
+   *
+   * Without this the browser is free to hold its own copy of `index.html` and
+   * `sw.js`, which is one of the reasons a deploy could land on the NAS and
+   * never reach the phone. The hashed bundles under /assets/ change name on
+   * every build, so they can be cached hard and forever.
+   */
+  app.use("/*", async (c, next) => {
+    await next();
+    const path = new URL(c.req.url).pathname;
+    if (path === "/" || path === "/index.html" || path === "/sw.js") {
+      c.header("Cache-Control", "no-cache");
+    } else if (path.startsWith("/assets/")) {
+      c.header("Cache-Control", "public, max-age=31536000, immutable");
+    }
+  });
+
   app.use("/*", serveStatic({ root: "./dist/client" }));
   app.get("*", serveStatic({ path: "./dist/client/index.html" }));
 }

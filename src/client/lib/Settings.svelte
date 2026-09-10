@@ -1,6 +1,6 @@
 <script lang="ts">
   type Health = {
-    version: string; schemaVersion: number; dbBytes: number;
+    version: string; build: string; schemaVersion: number; dbBytes: number;
     tables: number; walMode: string; zone: string; today: string;
   };
 
@@ -187,6 +187,8 @@
     <div class="row"><span>Database</span><span class="mono">{bytes(health.dbBytes)}</span></div>
     <div class="row"><span>Journal</span><span class="mono">{health.walMode}</span></div>
     <div class="row"><span>App version</span><span class="mono">{health.version}</span></div>
+    <!-- The one line that answers "did the update actually reach this phone?" -->
+    <div class="row"><span>Build</span><span class="mono">{health.build?.slice(0, 7) ?? "—"}</span></div>
     <div class="row"><span>Time zone</span><span class="mono">{health.zone}</span></div>
     <div class="row"><span>Session date</span><span class="mono">{health.today}</span></div>
   </div>

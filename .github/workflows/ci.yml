@@ -67,6 +67,10 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          # The short SHA reaches /api/health and the Settings screen, so a
+          # deploy can be confirmed from the phone rather than assumed.
+          build-args: |
+            PANNBEN_BUILD=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

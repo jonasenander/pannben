@@ -46,12 +46,13 @@ const start = (c: Clock = clock, id = uuidv7()) =>
   startSession(db, { id, program_id: program }, c, ZONE);
 
 /** Attach one exercise to an existing session and return its logged_exercise id. */
-function addHold(exerciseId: string, sessionId: string): string {
+let adHocPosition = 90;
+function attachExercise(exerciseId: string, sessionId: string): string {
   const blockId = uuidv7();
   const leId = uuidv7();
   const now = clock.nowIso();
   db.prepare("INSERT INTO session_block (id, session_id, position, type, created_at) VALUES (?,?,?,?,?)")
-    .run(blockId, sessionId, 99, "single", now);
+    .run(blockId, sessionId, adHocPosition++, "single", now);
   db.prepare(
     `INSERT INTO logged_exercise
        (id, session_id, block_id, position, exercise_id, target_sets, note, created_at, updated_at)
@@ -219,7 +220,7 @@ describe("optional fields", () => {
     // for data that does not exist, dressed up as validation.
     const held = logSet(db, {
       id: uuidv7(),
-      logged_exercise_id: addHold(plankId, s.id),
+      logged_exercise_id: attachExercise(plankId, s.id),
       set_index: 0,
       duration_s: 60,
     }, clock);
@@ -233,10 +234,71 @@ describe("optional fields", () => {
     upsertExercise(db, { id: plankId, name: "Side plank", metric_type: "hold" }, clock);
     expect(() => logSet(db, {
       id: uuidv7(),
-      logged_exercise_id: addHold(plankId, s.id),
+      logged_exercise_id: attachExercise(plankId, s.id),
       set_index: 0,
       weight: 10,
     }, clock)).toThrow(ValidationError);
+  });
+});
+
+describe("what a cardio set needs", () => {
+  /** Attach one exercise to a session and return its logged_exercise id. */
+  function attach(metric: MetricType, name: string, sessionId: string): string {
+    const exId = uuidv7();
+    upsertExercise(db, { id: exId, name, metric_type: metric }, clock);
+    return attachExercise(exId, sessionId);
+  }
+
+  it("takes a distance with no time and no speed", () => {
+    const s = start();
+    const le = attach("cardio", "Row erg", s.id);
+    const set = logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      distance_m: 2000 }, clock);
+    expect(set.distance_m).toBe(2000);
+    expect(set.duration_s).toBeNull();
+    expect(set.speed).toBeNull();
+  });
+
+  it("takes a time with no distance", () => {
+    const s = start();
+    const le = attach("cardio", "Assault bike", s.id);
+    const set = logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      duration_s: 900 }, clock);
+    expect(set.duration_s).toBe(900);
+  });
+
+  it("takes both, with speed as well", () => {
+    const s = start();
+    const le = attach("cardio", "Treadmill", s.id);
+    const set = logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      duration_s: 900, distance_m: 2400, speed: 9.6 }, clock);
+    expect([set.duration_s, set.distance_m, set.speed]).toEqual([900, 2400, 9.6]);
+  });
+
+  it("refuses a set with neither time nor distance", () => {
+    const s = start();
+    const le = attach("cardio", "Stairs", s.id);
+    // Speed alone is not a record of anything: fast for how long?
+    expect(() => logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      speed: 9.6 }, clock)).toThrow(ValidationError);
+    expect(() => logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0 },
+      clock)).toThrow(ValidationError);
+  });
+
+  it("never invents a speed from distance and time", () => {
+    const s = start();
+    const le = attach("cardio", "Treadmill", s.id);
+    const set = logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      duration_s: 900, distance_m: 2400 }, clock);
+    // An average is a different number from what the machine was set to.
+    expect(set.speed).toBeNull();
+  });
+
+  it("still lets a skipped cardio set carry nothing at all", () => {
+    const s = start();
+    const le = attach("cardio", "Treadmill", s.id);
+    expect(() => logSet(db, { id: uuidv7(), logged_exercise_id: le, set_index: 0,
+      skipped: true }, clock)).not.toThrow();
   });
 });
 

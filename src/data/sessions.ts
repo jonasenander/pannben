@@ -61,12 +61,25 @@ export const FIELDS: Record<MetricType, (keyof LoggedSet)[]> = {
 /**
  * Fields that may be left out entirely.
  *
- * Most holds carry no added weight. Requiring a number there meant a plank
- * could not be logged without typing a zero first — a demand for data that
- * does not exist, dressed up as validation.
+ * Most holds carry no added weight, and a treadmill readout is often a
+ * distance with no speed. Requiring a number there meant a plank could not be
+ * logged without typing a zero first — a demand for data that does not exist,
+ * dressed up as validation.
  */
 const OPTIONAL: Partial<Record<MetricType, Set<keyof LoggedSet>>> = {
   hold: new Set(["weight"]),
+  cardio: new Set(["speed", "duration_s", "distance_m"]),
+};
+
+/**
+ * Groups where at least one member has to be present.
+ *
+ * Cardio is the case: a run is a time, a distance, or both. Speed alone
+ * records nothing — fast for how long? — so it stays optional while the pair
+ * it describes carries the requirement.
+ */
+const REQUIRE_ANY: Partial<Record<MetricType, (keyof LoggedSet)[]>> = {
+  cardio: ["duration_s", "distance_m"],
 };
 
 export interface StartSessionInput {
@@ -262,6 +275,15 @@ export function logSet(db: Database, input: LogSetInput, clock: Clock): LoggedSe
     const optional = OPTIONAL[owner.metric_type];
     const required = allowed.filter((f) => !optional?.has(f));
 
+    const anyOf = REQUIRE_ANY[owner.metric_type];
+    if (anyOf && !anyOf.some((f) => input[f as keyof LogSetInput] !== null
+                                 && input[f as keyof LogSetInput] !== undefined)) {
+      throw new ValidationError(
+        `${owner.metric_type} sets need ${anyOf.map(label).join(" or ")}`,
+        anyOf[0] as string,
+      );
+    }
+
     for (const field of allowed) {
       const value = input[field as keyof LogSetInput];
       if (value === null || value === undefined) {
@@ -333,6 +355,11 @@ export function logSet(db: Database, input: LogSetInput, clock: Clock): LoggedSe
 
   return getSet(db, input.id)!;
 }
+
+/** Field names as a person would say them, for a message they have to act on. */
+const label = (field: keyof LoggedSet): string =>
+  ({ duration_s: "a time", distance_m: "a distance", speed: "a speed",
+     weight: "a weight", reps: "reps" } as Record<string, string>)[field] ?? String(field);
 
 /** SQLite has no boolean: these come back as 0/1 and are converted on read. */
 type SetRow = Omit<LoggedSet, "skipped" | "to_failure"> & { skipped: number; to_failure: number };
