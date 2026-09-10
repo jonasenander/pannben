@@ -66,6 +66,35 @@ body {
   /* room for the phone's home indicator when installed */
   padding-bottom: env(safe-area-inset-bottom);
 }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+/* Behave like an app, not a page.
+   -----------------------------------------------------------------------
+   `touch-action: manipulation` is the one that matters: without it a phone
+   waits to see whether a second tap is a double-tap-to-zoom, so hammering the
+   +/- on a set row zoomed the page instead of changing the reps — and every
+   tap carried the ~300ms delay that wait costs. touch-action is not inherited,
+   but the allowed behaviours are intersected down the ancestor chain, so
+   setting it here covers the app; it is repeated on `button` to say why at the
+   control it protects.
+
+   The rest is the same complaint: the grey flash on tap, a long press
+   selecting label text, and the page rubber-banding past its own ends. */
+body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+/* Notes and typed values stay selectable — this is chrome, not content. */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  font: inherit; color: inherit; background: none; border: 0; cursor: pointer;
+  touch-action: manipulation;
+}
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
