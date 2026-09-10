@@ -4,14 +4,14 @@
   import Badge from "./Badge.svelte";
   import { uuidv7 } from "./uuid.js";
   import {
-    fetchActiveSession, logSet, setExerciseNote, finishSession, removeSession,
-    formatDuration,
+    fetchActiveSession, cacheActiveSession, logSet, setExerciseNote,
+    finishSession, removeSession, formatDuration,
     type SessionView, type SessionBlock, type LoggedExercise, type LoggedSet,
   } from "./api.js";
   import {
     currentRound, roundsPlanned, blockDone, openRounds, remainingRounds,
   } from "../../data/rounds.js";
-  import { flush } from "./outbox.js";
+  import { flush, syncState } from "./outbox.js";
 
   let { onfinished }: { onfinished: () => void } = $props();
 
@@ -25,12 +25,24 @@
   /** A superset asked to close before its last round. */
   let endingBlock = $state<string | null>(null);
 
+  /**
+   * Re-read the session.
+   *
+   * A failure here used to replace the screen with "Failed to fetch", which
+   * offline meant losing the workout you were standing in the middle of. It
+   * cannot: the local copy is ahead of the server whenever anything is queued,
+   * so on failure the screen keeps what it has and the sync bar says why.
+   */
   export async function reload(): Promise<void> {
     try {
-      session = await fetchActiveSession();
+      const fresh = await fetchActiveSession();
+      // Never let a server copy overwrite sets that are still in the outbox.
+      if (syncState().pending > 0 && session) return;
+      session = fresh;
       if (session) notes = session.notes;
+      error = null;
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      if (!session) error = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -81,17 +93,51 @@
     session ? Math.max(0, session.blocks.findIndex((b) => !blockDone(b))) : 0,
   );
 
+  /**
+   * Show the set as logged before anything reaches the server.
+   *
+   * The write is durable the moment it is in the outbox, so the row has no
+   * reason to wait for a round trip — and offline there is no round trip to
+   * wait for. Without this the screen sat unchanged after every tap in exactly
+   * the place the app is meant to work: a basement with no signal.
+   */
+  function applyLocally(ex: LoggedExercise, set: Partial<LoggedSet> & { id: string }) {
+    if (!session) return;
+    const now = new Date().toISOString();
+    const complete = {
+      logged_at: now, round_index: 0, skipped: false, to_failure: false,
+      weight: null, reps: null, duration_s: null, distance_m: null, speed: null,
+      ...set, logged_exercise_id: ex.id,
+    } as LoggedSet;
+
+    session = {
+      ...session,
+      blocks: session.blocks.map((b) => ({
+        ...b,
+        exercises: b.exercises.map((e) =>
+          e.id === ex.id
+            ? { ...e, sets: [...e.sets.filter((s) => s.id !== complete.id), complete] }
+            : e),
+      })),
+    };
+    void cacheActiveSession(session);
+  }
+
   async function log(ex: LoggedExercise, values: Partial<LoggedSet>) {
-    await logSet({ id: uuidv7(), logged_exercise_id: ex.id, ...values } as never);
+    const set = { id: uuidv7(), logged_exercise_id: ex.id, ...values };
+    applyLocally(ex, set);
+    await logSet(set as never);
     await flush();
     await reload();
   }
 
   async function skip(ex: LoggedExercise, setIndex: number, round: number) {
-    await logSet({
+    const set = {
       id: uuidv7(), logged_exercise_id: ex.id,
       set_index: setIndex, round_index: round, skipped: true,
-    } as never);
+    };
+    applyLocally(ex, set);
+    await logSet(set as never);
     await flush();
     await reload();
   }
@@ -115,10 +161,12 @@
     for (const { exerciseIndex, rounds } of remainingRounds(block)) {
       const ex = block.exercises[exerciseIndex]!;
       for (const round of rounds) {
-        await logSet({
+        const set = {
           id: uuidv7(), logged_exercise_id: ex.id,
           set_index: round, round_index: round, skipped: true,
-        } as never);
+        };
+        applyLocally(ex, set);
+        await logSet(set as never);
       }
     }
     await flush();
@@ -139,6 +187,7 @@
   async function discard() {
     if (!session) return;
     await removeSession(session.id);
+    await cacheActiveSession(null);
     await flush();
     onfinished();
   }
@@ -154,6 +203,7 @@
     if (!session) return;
     await flush();
     await finishSession(session.id, notes);
+    await cacheActiveSession(null);
     onfinished();
   }
 </script>

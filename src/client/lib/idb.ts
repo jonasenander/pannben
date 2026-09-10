@@ -50,9 +50,22 @@ export async function cacheGet<T>(key: string): Promise<T | undefined> {
 }
 
 export async function cachePut(key: string, value: unknown): Promise<void> {
+  if (value === undefined) return;
   try {
-    await (await idb()).put("cache", value, key);
-  } catch {
-    /* cache is an optimisation, never a requirement */
+    /**
+     * The JSON round trip is not decoration.
+     *
+     * Svelte's `$state` is a Proxy, and a Proxy cannot be structured-cloned
+     * into IndexedDB — it throws `DataCloneError`. The blanket catch below
+     * swallowed exactly that, so caching a live session wrote nothing at all
+     * and a cold open came back showing a workout with none of its sets in it.
+     * Everything cached here arrived as JSON, so a round trip both strips the
+     * proxy and deep-copies away from state that is still changing.
+     */
+    await (await idb()).put("cache", JSON.parse(JSON.stringify(value)), key);
+  } catch (err) {
+    // A private window or blocked storage must not take the app down — but say
+    // so once rather than never. Silence here is what hid the bug above.
+    console.warn("pannben: cache write failed", key, err);
   }
 }
