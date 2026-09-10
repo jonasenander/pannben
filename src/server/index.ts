@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { openDb, health } from "../data/db.js";
 import { systemClock } from "../data/clock.js";
+import { exportAll, exportSummary } from "../data/export.js";
+import { exerciseRoutes } from "./routes/exercises.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -38,6 +40,16 @@ app.get("/api/health", (c) => {
     serverTime: systemClock.nowIso(),
   });
 });
+
+app.route("/api/exercises", exerciseRoutes(db, systemClock));
+
+app.get("/api/export", (c) => {
+  const stamp = systemClock.today(ZONE);
+  c.header("Content-Disposition", `attachment; filename="pannben-export-${stamp}.json"`);
+  return c.json(exportAll(db, systemClock, process.env.npm_package_version ?? "0.1.0"));
+});
+
+app.get("/api/export/summary", (c) => c.json(exportSummary(db)));
 
 // The built client. In dev, Vite serves this and proxies /api here instead.
 const clientDir = join(root, "dist/client");
