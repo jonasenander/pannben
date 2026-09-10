@@ -18,7 +18,8 @@
     "privacy-check": "node scripts/privacy-check.mjs",
     "backup": "node scripts/backup.mjs",
     "prepare": "node scripts/install-hooks.mjs",
-    "seed": "node scripts/seed.mjs"
+    "seed": "node scripts/seed.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",

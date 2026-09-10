@@ -11,7 +11,9 @@
     <title>Pannben</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon-192.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- iOS wants 180 and composites any transparency onto black; the
+         generator flattens it onto the artwork's own ground instead. -->
+    <link rel="apple-touch-icon" href="/icon-180.png" />
 
     <!-- iOS ignores the manifest's display mode on older versions and is
          inconsistent about it even on newer ones. These legacy tags are what
