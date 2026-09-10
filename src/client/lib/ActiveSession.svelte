@@ -9,7 +9,7 @@
     type SessionView, type SessionBlock, type LoggedExercise, type LoggedSet,
   } from "./api.js";
   import {
-    currentRound, roundsPlanned, blockDone, openRounds, canAdvance,
+    currentRound, roundsPlanned, blockDone, openRounds, remainingRounds,
   } from "../../data/rounds.js";
   import { flush } from "./outbox.js";
 
@@ -22,24 +22,13 @@
   let discarding = $state(false);
   let notes = $state("");
 
-  /**
-   * Rounds moved to by tapping **Next round** rather than by closing the round
-   * before. Keyed by block, and reset whenever the session reloads, because a
-   * forced round is a decision about right now — not something to persist.
-   */
-  let forced = $state<Record<string, number>>({});
+  /** A superset asked to close before its last round. */
+  let endingBlock = $state<string | null>(null);
 
   export async function reload(): Promise<void> {
     try {
       session = await fetchActiveSession();
       if (session) notes = session.notes;
-      // A round forced past what is now logged is spent.
-      forced = Object.fromEntries(
-        Object.entries(forced).filter(([id, round]) => {
-          const b = session?.blocks.find((x) => x.id === id);
-          return b ? round > currentRound(b) && round < roundsPlanned(b) : false;
-        }),
-      );
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -70,7 +59,7 @@
 
   function rowsFor(ex: LoggedExercise, block: SessionBlock): Row[] {
     if (block.type === "superset") {
-      const open = openRounds(block, ex, { forcedRound: forced[block.id] });
+      const open = openRounds(block, ex);
       const rounds = [...new Set([...ex.sets.map((s) => s.round_index), ...open])]
         .sort((a, b) => a - b);
       return rounds.map((r) => ({
@@ -112,12 +101,33 @@
     await flush();
   }
 
-  /** Move the whole block on, leaving any unlogged row of this round unlogged. */
-  function nextRound(block: SessionBlock) {
-    const at = forced[block.id] ?? currentRound(block);
-    if (!canAdvance(block, forced[block.id])) return;
-    forced = { ...forced, [block.id]: at + 1 };
+  /**
+   * Close a superset before its last round.
+   *
+   * Rounds advance by themselves once every exercise has logged, so this is the
+   * only thing a button here can mean. The rounds not done are written as
+   * skipped sets, so history says "round 3 — not done" rather than looking like
+   * the superset was only ever two rounds long. Skipped sets are already left
+   * out of every volume and 1RM number.
+   */
+  async function endSuperset(block: SessionBlock) {
+    endingBlock = null;
+    for (const { exerciseIndex, rounds } of remainingRounds(block)) {
+      const ex = block.exercises[exerciseIndex]!;
+      for (const round of rounds) {
+        await logSet({
+          id: uuidv7(), logged_exercise_id: ex.id,
+          set_index: round, round_index: round, skipped: true,
+        } as never);
+      }
+    }
+    await flush();
+    await reload();
   }
+
+  /** How much a confirm has to warn about. */
+  const roundsLeft = (block: SessionBlock) =>
+    roundsPlanned(block) - currentRound(block);
 
   /**
    * Abandon a session started by mistake.
@@ -163,7 +173,7 @@
   <SyncBar />
 
   {#each session.blocks as block, bi (block.id)}
-    {@const round = forced[block.id] ?? currentRound(block)}
+    {@const round = currentRound(block)}
     {@const rounds = roundsPlanned(block)}
     {@const done = blockDone(block)}
     <!-- Past quiet, current strong, future neutral. The accent rule marks
@@ -215,12 +225,27 @@
         </div>
       {/each}
 
-      {#if block.type === "superset" && !done && canAdvance(block, forced[block.id])}
-        <!-- The round advances by itself once every exercise logs. This is for
-             deliberately leaving one out: an unlogged row is simply not logged. -->
-        <button class="next-round" onclick={() => nextRound(block)}>
-          Next round → {Math.min(round + 2, rounds)} of {rounds}
-        </button>
+      {#if block.type === "superset" && !done}
+        {#if endingBlock === block.id}
+          <!-- "Stop after round 2" would claim round 2 was finished, and the
+               usual reason to press this is that it is half done. -->
+          <p class="ending">
+            Stop here? The {roundsLeft(block) === 1
+              ? "last round"
+              : `remaining ${roundsLeft(block)} rounds`} will show in history as
+            not done.
+          </p>
+          <div class="pair">
+            <button class="next-round" onclick={() => (endingBlock = null)}>Keep going</button>
+            <button class="next-round go" onclick={() => endSuperset(block)}>End it</button>
+          </div>
+        {:else}
+          <!-- Rounds advance on their own once both exercises log, so the only
+               thing this can mean is leaving before the end. It says so. -->
+          <button class="next-round" onclick={() => (endingBlock = block.id)}>
+            End this superset
+          </button>
+        {/if}
       {/if}
     </section>
   {/each}
@@ -260,13 +285,22 @@
 {/if}
 
 <style>
-  /* Advancing the block is not closing a set: outline, not filled, and it sits
+  /* Ending the block is not closing a set: outline, not filled, and it sits
      under the exercises it applies to rather than among the set actions. */
   .next-round {
     width: 100%; min-height: 44px; margin-top: var(--s2);
     border: 1px solid var(--line-strong); border-radius: var(--r-row);
     background: transparent; color: var(--ink-secondary);
     font-family: var(--f-display); font-size: 15px; font-weight: 600;
+  }
+
+  .next-round.go { border-color: var(--accent); color: var(--accent); }
+  .pair { display: flex; gap: var(--s2); }
+  .pair .next-round { flex: 1; }
+  .ending {
+    font-size: 13px; line-height: 18px; color: var(--ink-secondary);
+    background: var(--surface-inset); border: 1px solid var(--line);
+    border-radius: var(--r-row); padding: var(--s2) var(--s3); margin: var(--s2) 0 0;
   }
 
   /* Discarding is rare and destructive: quiet until it is asked for. */

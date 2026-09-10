@@ -6,7 +6,9 @@ import { uuidv7 } from "../src/data/uuid.js";
 import { upsertExercise } from "../src/data/exercises.js";
 import { upsertProgram } from "../src/data/programs.js";
 import { startSession, logSet, type SessionBlock } from "../src/data/sessions.js";
-import { currentRound, roundsPlanned, openRounds } from "../src/data/rounds.js";
+import {
+  currentRound, roundsPlanned, openRounds, blockDone, remainingRounds,
+} from "../src/data/rounds.js";
 
 const MIGRATIONS = new URL("../migrations", import.meta.url).pathname;
 const ZONE = "Europe/Stockholm";
@@ -137,5 +139,91 @@ describe("the rows each exercise gets", () => {
     const s = startSession(db, { id, program_id: solo }, clock, ZONE);
     const b = s.blocks[0]!;
     expect(openRounds(b, b.exercises[0]!)).toEqual([0]);
+  });
+});
+
+describe("a superset whose exercises were given different set counts", () => {
+  /**
+   * The bug: `roundsPlanned` takes the deepest target, so the exercise with
+   * fewer sets could never satisfy the last round. `currentRound` stopped
+   * there for ever, the block never finished, and it kept opening a row for an
+   * exercise that had already done everything it was asked for.
+   */
+  const uneven = () => ({
+    type: "superset" as const,
+    exercises: [
+      { target_sets: 3, sets: [{ round_index: 0 }, { round_index: 1 }, { round_index: 2 }] },
+      { target_sets: 2, sets: [{ round_index: 0 }, { round_index: 1 }] },
+    ],
+  });
+
+  it("still plans the deepest target", () => {
+    expect(roundsPlanned(uneven())).toBe(3);
+  });
+
+  it("counts an exercise that has met its own target as finished", () => {
+    // The second exercise owes nothing at round 2: it was only ever asked for 2.
+    expect(openRounds(uneven(), uneven().exercises[1]!)).toEqual([]);
+  });
+
+  it("finishes, rather than waiting for a round nobody owes", () => {
+    expect(blockDone(uneven())).toBe(true);
+  });
+
+  it("is still waiting while the deeper exercise owes a round", () => {
+    const half = {
+      type: "superset" as const,
+      exercises: [
+        { target_sets: 3, sets: [{ round_index: 0 }, { round_index: 1 }] },
+        { target_sets: 2, sets: [{ round_index: 0 }, { round_index: 1 }] },
+      ],
+    };
+    expect(blockDone(half)).toBe(false);
+    expect(openRounds(half, half.exercises[0]!)).toEqual([2]);
+    expect(openRounds(half, half.exercises[1]!)).toEqual([]);
+  });
+});
+
+describe("ending a superset early", () => {
+  const block = (aSets: number[], bSets: number[]) => ({
+    type: "superset" as const,
+    exercises: [
+      { target_sets: 3, sets: aSets.map((r) => ({ round_index: r })) },
+      { target_sets: 3, sets: bSets.map((r) => ({ round_index: r })) },
+    ],
+  });
+
+  it("names every round each exercise still owes", () => {
+    // Two of three rounds done by both: each owes round 2 and nothing else.
+    expect(remainingRounds(block([0, 1], [0, 1]))).toEqual([
+      { exerciseIndex: 0, rounds: [2] },
+      { exerciseIndex: 1, rounds: [2] },
+    ]);
+  });
+
+  it("counts a part-finished round correctly", () => {
+    // The first logged round 1, the second did not: only the second owes it.
+    expect(remainingRounds(block([0, 1], [0]))).toEqual([
+      { exerciseIndex: 0, rounds: [2] },
+      { exerciseIndex: 1, rounds: [1, 2] },
+    ]);
+  });
+
+  it("has nothing to record once the block is genuinely finished", () => {
+    expect(remainingRounds(block([0, 1, 2], [0, 1, 2]))).toEqual([]);
+  });
+
+  it("respects each exercise's own target", () => {
+    const uneven = {
+      type: "superset" as const,
+      exercises: [
+        { target_sets: 3, sets: [{ round_index: 0 }] },
+        { target_sets: 2, sets: [{ round_index: 0 }] },
+      ],
+    };
+    expect(remainingRounds(uneven)).toEqual([
+      { exerciseIndex: 0, rounds: [1, 2] },
+      { exerciseIndex: 1, rounds: [1] },
+    ]);
   });
 });
