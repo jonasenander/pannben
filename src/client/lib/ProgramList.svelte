@@ -5,7 +5,7 @@
   let { onopen }: { onopen: (id: string | null) => void } = $props();
 
   let include = $state<Include>("active");
-  let state = $state<
+  let view = $state<
     | { status: "loading" }
     | { status: "ok"; data: ProgramSummary[]; stale: boolean }
     | { status: "error"; message: string }
@@ -14,9 +14,9 @@
   export async function reload(): Promise<void> {
     try {
       const { data, stale } = await fetchPrograms(include);
-      state = { status: "ok", data, stale };
+      view = { status: "ok", data, stale };
     } catch (err) {
-      state = { status: "error", message: err instanceof Error ? err.message : String(err) };
+      view = { status: "error", message: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -34,10 +34,10 @@
   {/each}
 </div>
 
-{#if state.status === "ok"}
-  {#if state.stale}<p class="hint">Showing the last synced copy — the server is unreachable.</p>{/if}
+{#if view.status === "ok"}
+  {#if view.stale}<p class="hint">Showing the last synced copy — the server is unreachable.</p>{/if}
 
-  {#if state.data.length === 0}
+  {#if view.data.length === 0}
     <div class="empty">
       <p><strong>No programs yet.</strong></p>
       <p>A program is the template you log against: an ordered list of blocks,
@@ -45,7 +45,7 @@
     </div>
   {:else}
     <div class="sheet">
-      {#each state.data as p (p.id)}
+      {#each view.data as p (p.id)}
         <button class="lrow" onclick={() => onopen(p.id)}>
           <span class="grow">
             <span class="nm">{p.name}</span>
@@ -59,8 +59,8 @@
       {/each}
     </div>
   {/if}
-{:else if state.status === "error"}
-  <p class="err">{state.message}</p>
+{:else if view.status === "error"}
+  <p class="err">{view.message}</p>
   <button class="btn ghost" onclick={reload}>Try again</button>
 {:else}
   <p class="hint">Loading…</p>

@@ -1,5 +1,11 @@
 import { cacheGet, cachePut } from "./idb.js";
 import { enqueue } from "./outbox.js";
+// The parsing rules are shared with the server rather than reimplemented here:
+// numeric.ts imports nothing, so the client runs the same code the data
+// layer's tests already cover.
+import { parseDecimal, parseCount, formatDecimal } from "../../data/numeric.js";
+
+export { parseDecimal };
 
 export type MetricType =
   | "bodyweight" | "bodyweight_plus" | "dumbbell"
@@ -204,32 +210,55 @@ export interface FieldSpec {
   /** Steppers for small whole numbers; everything else is tap-to-type. */
   kind: "stepper" | "type";
   step?: number;
+  /** Shown as an input, but left off a logged row when it is zero. */
+  optional?: true;
+  /** Fractions are refused before the write is queued, not after. */
+  integer?: true;
 }
 
 export const METRIC_SET_FIELDS: Record<MetricType, FieldSpec[]> = {
   total_weight: [
     { key: "weight", label: "kg", kind: "type" },
-    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+    { key: "reps", label: "reps", kind: "stepper", step: 1, integer: true },
   ],
   dumbbell: [
     { key: "weight", label: "kg ea", kind: "type" },
-    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+    { key: "reps", label: "reps", kind: "stepper", step: 1, integer: true },
   ],
   bodyweight_plus: [
     { key: "weight", label: "+kg", kind: "type" },
-    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+    { key: "reps", label: "reps", kind: "stepper", step: 1, integer: true },
   ],
-  bodyweight: [{ key: "reps", label: "reps", kind: "stepper", step: 1 }],
+  bodyweight: [{ key: "reps", label: "reps", kind: "stepper", step: 1, integer: true }],
   hold: [
-    { key: "duration_s", label: "sec", kind: "type" },
-    { key: "weight", label: "+kg", kind: "type" },
+    { key: "duration_s", label: "sec", kind: "type", integer: true },
+    // Most holds carry no added weight, so the zero is not worth reading back.
+    { key: "weight", label: "+kg", kind: "type", optional: true },
   ],
   cardio: [
     { key: "speed", label: "km/h", kind: "type" },
-    { key: "duration_s", label: "sec", kind: "type" },
+    { key: "duration_s", label: "sec", kind: "type", integer: true },
     { key: "distance_m", label: "m", kind: "type" },
   ],
 };
+
+/**
+ * `×` only where the numbers actually multiply.
+ *
+ * 80 kg × 8 reps is a product — that is what volume means. 63 sec × 0 kg is
+ * not; a hold and a cardio row list independent facts about one effort.
+ */
+export const SET_SEPARATOR: Record<MetricType, string> = {
+  total_weight: "×", dumbbell: "×", bodyweight_plus: "×",
+  bodyweight: "×", hold: "·", cardio: "·",
+};
+
+/** The fields worth rendering on a set already logged. */
+export function shownFields(metric: MetricType, set: Partial<LoggedSet>): FieldSpec[] {
+  return METRIC_SET_FIELDS[metric].filter(
+    (f) => !f.optional || (set[f.key] !== null && set[f.key] !== undefined && set[f.key] !== 0),
+  );
+}
 
 export async function fetchActiveSession(): Promise<SessionView | null> {
   const res = await fetch("/api/sessions/active");
@@ -278,21 +307,136 @@ export async function finishSession(id: string, notes?: string): Promise<void> {
 }
 
 /**
- * Accepts a Swedish comma as readily as a point. This mirrors the data layer's
- * rule rather than hoping the keypad cooperates.
+ * Parse a typed value for one field.
+ *
+ * Reps and seconds are whole numbers in the schema, so 8,5 reps is a write the
+ * server will reject. Catching it here means the field refuses the value while
+ * the keypad is still open, rather than the correction appearing to work and
+ * then failing in the sync bar a second later.
  */
-export function parseDecimal(raw: string): number | null {
-  const t = raw.trim();
-  if (!/^\d+(?:[.,]\d+)?$/.test(t)) return null;
-  const v = Number(t.replace(",", "."));
-  return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+export function parseField(raw: string, field: FieldSpec): number | null {
+  return field.integer ? parseCount(raw) : parseDecimal(raw);
 }
 
 export const formatNumber = (v: number | null | undefined): string =>
-  v === null || v === undefined ? "" : String(Math.round(v * 100) / 100);
+  v === null || v === undefined ? "" : formatDecimal(v);
 
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return "—";
   const m = Math.floor(seconds / 60);
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------- history
+
+export interface SessionSummary {
+  id: string;
+  program_id: string | null;
+  program_name: string | null;
+  date: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "active" | "finished";
+  notes: string;
+  set_count: number;
+  exercise_count: number;
+  duration_s: number | null;
+}
+
+export async function fetchHistory(
+  opts: { program_id?: string; limit?: number; offset?: number } = {},
+): Promise<{ data: SessionSummary[]; stale: boolean }> {
+  const params = new URLSearchParams();
+  if (opts.program_id) params.set("program_id", opts.program_id);
+  params.set("limit", String(opts.limit ?? 50));
+  params.set("offset", String(opts.offset ?? 0));
+
+  const key = `history:${params.toString()}`;
+  try {
+    const res = await fetch(`/api/sessions?${params}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { sessions } = (await res.json()) as { sessions: SessionSummary[] };
+    await cachePut(key, sessions);
+    return { data: sessions, stale: false };
+  } catch (err) {
+    const cached = await cacheGet<SessionSummary[]>(key);
+    if (cached) return { data: cached, stale: true };
+    throw err;
+  }
+}
+
+export async function fetchSession(id: string): Promise<SessionView> {
+  const key = `session:${id}`;
+  try {
+    const res = await fetch(`/api/sessions/${id}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const data = (await res.json()) as SessionView;
+    await cachePut(key, data);
+    return data;
+  } catch (err) {
+    const cached = await cacheGet<SessionView>(key);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+/**
+ * A correction is an ordinary set write with the id it already has, so it
+ * replays and coalesces like any other. There is no separate edit endpoint.
+ */
+export async function updateSet(set: LoggedSet): Promise<void> {
+  await enqueue("PUT", `/api/sets/${set.id}`, { ...set, updated_at: new Date().toISOString() });
+}
+
+export async function removeSet(id: string): Promise<void> {
+  await enqueue("DELETE", `/api/sets/${id}`, null);
+}
+
+export async function updateSession(
+  id: string,
+  patch: { notes?: string; date?: string },
+): Promise<void> {
+  await enqueue("PATCH", `/api/sessions/${id}`, patch);
+}
+
+export async function removeSession(id: string): Promise<void> {
+  await enqueue("DELETE", `/api/sessions/${id}`, null);
+}
+
+/** "Tuesday 3 March" — the phone's locale, not a hand-rolled month table. */
+export function formatDate(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+/**
+ * How long ago, for the recent handful only.
+ *
+ * Beyond a week the month heading already places the session, and a column of
+ * "3 weeks ago · 3 weeks ago · 3 weeks ago" is noise that makes the dates
+ * harder to scan rather than easier.
+ */
+export function relativeDay(iso: string, today = new Date()): string {
+  const then = new Date(`${iso}T12:00:00`);
+  const noon = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
+  const days = Math.round((noon.getTime() - then.getTime()) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days > 1 && days < 7) return `${days} days ago`;
+  return "";
+}
+
+/**
+ * Self-labelling duration for lists — "48 min", "1h 05m".
+ *
+ * `formatDuration`'s HH:MM is right next to a running clock, where the colon
+ * reads as time elapsed. In a row that already says "10 sets · 3 exercises",
+ * a bare "00:48" is ambiguous with a rep count.
+ */
+export function formatMinutes(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }

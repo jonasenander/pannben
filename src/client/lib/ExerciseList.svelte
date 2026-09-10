@@ -6,7 +6,7 @@
   let { onopen }: { onopen: (id: string | null) => void } = $props();
 
   let include = $state<Include>("active");
-  let state = $state<
+  let view = $state<
     | { status: "loading" }
     | { status: "ok"; data: ExerciseList; stale: boolean }
     | { status: "error"; message: string }
@@ -15,9 +15,9 @@
   export async function reload(): Promise<void> {
     try {
       const { data, stale } = await fetchExercises(include);
-      state = { status: "ok", data, stale };
+      view = { status: "ok", data, stale };
     } catch (err) {
-      state = { status: "error", message: err instanceof Error ? err.message : String(err) };
+      view = { status: "error", message: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -43,12 +43,12 @@
   {/each}
 </div>
 
-{#if state.status === "ok"}
-  {#if state.stale}
+{#if view.status === "ok"}
+  {#if view.stale}
     <p class="hint">Showing the last synced copy — the server is unreachable.</p>
   {/if}
 
-  {#if state.data.exercises.length === 0}
+  {#if view.data.exercises.length === 0}
     <div class="empty">
       <p><strong>Nothing here yet.</strong></p>
       <p>
@@ -61,7 +61,7 @@
     </div>
   {:else}
     <div class="sheet">
-      {#each state.data.exercises as e (e.id)}
+      {#each view.data.exercises as e (e.id)}
         <button class="lrow" onclick={() => onopen(e.id)}>
           <span class="grow">
             <span class="nm">{e.name}</span>
@@ -75,10 +75,10 @@
   {/if}
 
   <p class="hint">
-    {state.data.counts.active} active · {state.data.counts.archived} archived
+    {view.data.counts.active} active · {view.data.counts.archived} archived
   </p>
-{:else if state.status === "error"}
-  <p class="err">{state.message}</p>
+{:else if view.status === "error"}
+  <p class="err">{view.message}</p>
   <button class="btn ghost" onclick={reload}>Try again</button>
 {:else}
   <p class="hint">Loading…</p>

@@ -451,3 +451,106 @@ export function deleteSet(db: Database, id: string, clock: Clock): void {
     .run(clock.nowIso(), clock.nowIso(), id);
   if (n.changes === 0) throw new ValidationError("no such set", "id");
 }
+
+export interface SessionSummary {
+  id: string;
+  program_id: string | null;
+  program_name: string | null;
+  date: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "active" | "finished";
+  notes: string;
+  /** Sets actually done. A skipped set records a decision, not work. */
+  set_count: number;
+  exercise_count: number;
+  duration_s: number | null;
+}
+
+export interface ListSessionsOptions {
+  program_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * The history list.
+ *
+ * Counts and duration are computed in SQL rather than by loading each session:
+ * the list is the one screen that touches every session ever logged.
+ */
+export function listSessions(db: Database, opts: ListSessionsOptions = {}): SessionSummary[] {
+  const rows = db
+    .prepare(
+      `SELECT s.id, s.program_id, s.program_name, s.date, s.started_at, s.finished_at,
+              s.status, s.notes,
+              COUNT(ls.id) AS set_count,
+              COUNT(DISTINCT CASE WHEN ls.id IS NOT NULL THEN le.id END) AS exercise_count,
+              MAX(ls.logged_at) AS last_set
+       FROM session s
+       LEFT JOIN logged_exercise le ON le.session_id = s.id
+       LEFT JOIN logged_set ls ON ls.logged_exercise_id = le.id
+            AND ls.deleted_at IS NULL AND ls.skipped = 0
+       WHERE s.deleted_at IS NULL
+         AND (@program_id IS NULL OR s.program_id = @program_id)
+       GROUP BY s.id
+       ORDER BY s.date DESC, s.started_at DESC
+       LIMIT @limit OFFSET @offset`,
+    )
+    .all({
+      program_id: opts.program_id ?? null,
+      limit: opts.limit ?? 100,
+      offset: opts.offset ?? 0,
+    }) as (Omit<SessionSummary, "duration_s"> & { last_set: string | null })[];
+
+  return rows.map(({ last_set, ...row }) => ({
+    ...row,
+    duration_s: last_set
+      ? Math.max(0, Math.round((Date.parse(last_set) - Date.parse(row.started_at)) / 1000))
+      : null,
+  }));
+}
+
+export interface SessionPatch {
+  notes?: string;
+  /** A session logged on the wrong day. Local calendar date, `YYYY-MM-DD`. */
+  date?: string;
+}
+
+export function updateSession(db: Database, id: string, patch: SessionPatch, clock: Clock): Session {
+  const existing = db.prepare("SELECT id FROM session WHERE id = ?").get(id);
+  if (!existing) throw new ValidationError("no such session", "id");
+
+  if (patch.date !== undefined) {
+    // Stored as a plain string, so nothing else will catch a malformed one.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(patch.date) || Number.isNaN(Date.parse(patch.date))) {
+      throw new ValidationError("date must look like 2026-03-01", "date");
+    }
+  }
+
+  const now = clock.nowIso();
+  db.prepare(
+    `UPDATE session SET
+       notes = COALESCE(@notes, notes),
+       date  = COALESCE(@date, date),
+       updated_at = @now
+     WHERE id = @id`,
+  ).run({ id, notes: patch.notes ?? null, date: patch.date ?? null, now });
+
+  return getSession(db, id)!;
+}
+
+/**
+ * Soft-delete a whole session.
+ *
+ * The sets stay in the table and in exports. Deleting the *active* session is
+ * how you abandon a workout you started by mistake: the partial unique index
+ * ignores deleted rows, so the slot is free immediately.
+ */
+export function deleteSession(db: Database, id: string, clock: Clock): void {
+  const now = clock.nowIso();
+  const n = db
+    .prepare("UPDATE session SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+    .run(now, now, id);
+  if (n.changes === 0) throw new ValidationError("no such session", "id");
+}

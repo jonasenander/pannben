@@ -5,19 +5,23 @@
   import ExerciseEdit from "./lib/ExerciseEdit.svelte";
   import ProgramList from "./lib/ProgramList.svelte";
   import ProgramEdit from "./lib/ProgramEdit.svelte";
+  import History from "./lib/History.svelte";
+  import SessionDetail from "./lib/SessionDetail.svelte";
   import Settings from "./lib/Settings.svelte";
   import { initOutbox, flush } from "./lib/outbox.js";
 
   type Screen =
     | { name: "home" }
     | { name: "session" }
+    | { name: "history" }
+    | { name: "session-detail"; id: string }
     | { name: "exercises" }
     | { name: "exercise-edit"; id: string | null }
     | { name: "programs" }
     | { name: "program-edit"; id: string | null }
     | { name: "settings" };
 
-  type Tab = "home" | "exercises" | "programs";
+  type Tab = "home" | "history" | "exercises" | "programs";
 
   let stack = $state<Screen[]>([{ name: "home" }]);
   const current = $derived(stack[stack.length - 1]!);
@@ -26,13 +30,16 @@
       ? "programs"
       : current.name === "exercises" || current.name === "exercise-edit"
         ? "exercises"
-        : "home",
+        : current.name === "history" || current.name === "session-detail"
+          ? "history"
+          : "home",
   );
 
   let home = $state<Home | undefined>();
   let activeSession = $state<ActiveSession | undefined>();
   let exerciseList = $state<ExerciseList | undefined>();
   let programList = $state<ProgramList | undefined>();
+  let history = $state<History | undefined>();
 
   const go = (s: Screen) => (stack = [...stack, s]);
   const back = () => { if (stack.length > 1) stack = stack.slice(0, -1); };
@@ -44,24 +51,23 @@
     await flush();
     await exerciseList?.reload();
     await programList?.reload();
+    await history?.reload();
     await home?.reload();
   }
 
-  const title = $derived(
-    current.name === "home"
-      ? "Pannben"
-      : current.name === "session"
-        ? "Session"
-        : current.name === "exercise-edit"
-      ? current.id === null ? "New exercise" : "Edit exercise"
-      : current.name === "program-edit"
-        ? current.id === null ? "New program" : "Edit program"
-        : current.name === "programs"
-          ? "Programs"
-          : current.name === "settings"
-            ? "Settings"
-            : "Exercises",
-  );
+  const title = $derived.by(() => {
+    switch (current.name) {
+      case "home": return "Pannben";
+      case "session": return "Session";
+      case "history": return "History";
+      case "session-detail": return "Session";
+      case "exercises": return "Exercises";
+      case "exercise-edit": return current.id === null ? "New exercise" : "Edit exercise";
+      case "programs": return "Programs";
+      case "program-edit": return current.id === null ? "New program" : "Edit program";
+      case "settings": return "Settings";
+    }
+  });
 
   $effect(() => { void initOutbox(); });
 </script>
@@ -83,6 +89,11 @@
     {:else if current.name === "session"}
       <ActiveSession bind:this={activeSession}
         onfinished={async () => { stack = [{ name: "home" }]; await home?.reload(); }} />
+    {:else if current.name === "history"}
+      <History bind:this={history} onopen={(id) => go({ name: "session-detail", id })} />
+    {:else if current.name === "session-detail"}
+      <SessionDetail id={current.id}
+        ondone={async () => { back(); await history?.reload(); await home?.reload(); }} />
     {:else if current.name === "exercises"}
       <ExerciseList bind:this={exerciseList} onopen={(id) => go({ name: "exercise-edit", id })} />
     {:else if current.name === "exercise-edit"}
@@ -101,6 +112,11 @@
       <button class:on={tab === "home"} onclick={() => switchTab("home")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5" /></svg>
         Home
+      </button>
+      <button class:on={tab === "history"} onclick={() => switchTab("history")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 7v5.5l3.5 2" /><circle cx="12" cy="12" r="8.5" /></svg>
+        History
       </button>
       <button class:on={tab === "exercises"} onclick={() => switchTab("exercises")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 12h16M4 18.5h16" /></svg>
@@ -136,7 +152,7 @@
 
   /* A flat plane. No blur, no floating capsule. */
   .tabs {
-    flex: none; display: grid; grid-template-columns: repeat(3, 1fr);
+    flex: none; display: grid; grid-template-columns: repeat(4, 1fr);
     background: var(--surface); border-top: 1px solid var(--line);
     padding: var(--s2) var(--s1) 10px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom));

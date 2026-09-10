@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    METRIC_SET_FIELDS, parseDecimal, formatNumber,
+    METRIC_SET_FIELDS, shownFields, SET_SEPARATOR, parseField, formatNumber,
     type LoggedSet, type MetricType, type FieldSpec,
   } from "./api.js";
 
@@ -36,7 +36,7 @@
   }
 
   function commitEdit(f: FieldSpec) {
-    const parsed = parseDecimal(editText);
+    const parsed = parseField(editText, f);
     if (parsed !== null) values = { ...values, [f.key]: parsed };
     editing = null;
   }
@@ -57,8 +57,8 @@
     {#if logged.skipped}
       <span class="v muted">not done</span>
     {:else}
-      {#each fields as f, i}
-        {#if i > 0}<span class="x">×</span>{/if}
+      {#each shownFields(metricType, logged) as f, i}
+        {#if i > 0}<span class="x">{SET_SEPARATOR[metricType]}</span>{/if}
         <span class="v">{formatNumber(logged[f.key])}<i>{f.label}</i></span>
       {/each}
     {/if}

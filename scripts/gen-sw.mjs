@@ -27,7 +27,13 @@ const statics = readdirSync(DIST)
   .filter((f) => /\.(png|webmanifest)$/.test(f))
   .map((f) => `/${f}`);
 
-const shell = ["/", "/index.html", ...referenced, ...statics];
+// The type is vendored, so it precaches like any other asset. Without this the
+// app opens offline in system fallback fonts, which is not the design system.
+const fonts = readdirSync(join(DIST, "fonts"))
+  .filter((f) => /\.(woff2|css)$/.test(f))
+  .map((f) => `/fonts/${f}`);
+
+const shell = ["/", "/index.html", ...referenced, ...statics, ...fonts];
 
 // A version derived from the contents means a deploy invalidates the old cache
 // automatically, rather than serving yesterday's bundle forever.

@@ -5,6 +5,7 @@ import { ValidationError } from "../../data/exercises.js";
 import {
   startSession, logSet, finishSession, activeSession,
   getSessionView, setExerciseNote, deleteSet,
+  listSessions, updateSession, deleteSession,
 } from "../../data/sessions.js";
 
 export function sessionRoutes(db: Database, clock: Clock, zone: string): Hono {
@@ -15,6 +16,25 @@ export function sessionRoutes(db: Database, clock: Clock, zone: string): Hono {
     if (err instanceof ValidationError) return { error: err.message, field: err.field };
     throw err;
   };
+
+  /**
+   * The history list. Paged, because this is the one screen whose cost grows
+   * with every workout ever logged.
+   */
+  app.get("/", (c) => {
+    const q = c.req.query();
+    const num = (raw: string | undefined, fallback: number) => {
+      const n = Number(raw);
+      return Number.isInteger(n) && n >= 0 ? n : fallback;
+    };
+    return c.json({
+      sessions: listSessions(db, {
+        program_id: q.program_id || undefined,
+        limit: Math.min(num(q.limit, 50), 200),
+        offset: num(q.offset, 0),
+      }),
+    });
+  });
 
   app.get("/active", (c) => {
     const s = activeSession(db);
@@ -40,6 +60,29 @@ export function sessionRoutes(db: Database, clock: Clock, zone: string): Hono {
       return c.json(getSessionView(db, id));
     } catch (err) {
       return c.json(asBadRequest(err), 400);
+    }
+  });
+
+  /** Corrections after the fact: the session note, or a session logged on the wrong day. */
+  app.patch("/:id", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as
+      | { notes?: string; date?: string } | null;
+    if (!body) return c.json({ error: "expected a JSON body" }, 400);
+    try {
+      updateSession(db, c.req.param("id"), body, clock);
+      return c.json(getSessionView(db, c.req.param("id")));
+    } catch (err) {
+      return c.json(asBadRequest(err), 400);
+    }
+  });
+
+  /** Soft. The sets stay in the table and in every export. */
+  app.delete("/:id", (c) => {
+    try {
+      deleteSession(db, c.req.param("id"), clock);
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json(asBadRequest(err), 404);
     }
   });
 

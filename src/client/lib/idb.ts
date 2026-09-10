@@ -12,7 +12,7 @@ import { openDB, type IDBPDatabase } from "idb";
 export interface QueuedWrite {
   /** `${method} ${url}` — the coalescing key, see enqueue(). */
   key: string;
-  method: "PUT" | "POST" | "DELETE";
+  method: "PUT" | "POST" | "PATCH" | "DELETE";
   url: string;
   body: unknown;
   queued_at: string;
