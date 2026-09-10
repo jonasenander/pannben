@@ -175,6 +175,19 @@ describe("the chart series", () => {
     expect(metricSeries(db, weight).points).toEqual([]);
   });
 
+  it("gives the chart two endpoints to draw the trend between", () => {
+    reading(86, "2026-01-10T07:30:00Z");
+    reading(84, "2026-03-01T07:30:00Z");
+    const s = metricSeries(db, weight);
+    expect(s.trend_ends).not.toBeNull();
+    expect(s.trend_ends!.from).toBeGreaterThan(s.trend_ends!.to);
+  });
+
+  it("draws no trend through a single reading", () => {
+    reading(84, "2026-03-01T07:30:00Z");
+    expect(metricSeries(db, weight).trend_ends).toBeNull();
+  });
+
   it("survives readings months apart — the whole point of weighing rarely", () => {
     reading(88, "2025-09-01T07:30:00Z");
     reading(86, "2026-01-15T07:30:00Z");

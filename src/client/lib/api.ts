@@ -629,6 +629,7 @@ export interface BodySeries {
   unit: string;
   points: ChartPoint[];
   trend: { slope_per_day: number; change: number } | null;
+  trend_ends: { from: number; to: number } | null;
   latest: number | null;
   change: number | null;
 }

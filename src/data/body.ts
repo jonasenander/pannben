@@ -254,6 +254,12 @@ export interface MetricSeries {
   unit: string;
   points: MetricPoint[];
   trend: Trend | null;
+  /**
+   * The trend as its two endpoints. The chart draws a line between two points;
+   * evaluating here keeps the fitting maths out of the client, exactly as the
+   * exercise chart route already does.
+   */
+  trend_ends: { from: number; to: number } | null;
   latest: number | null;
   change: number | null;
 }
@@ -303,6 +309,10 @@ export function metricSeries(
     unit: type.unit,
     points,
     trend,
+    trend_ends:
+      trend && points.length >= 2
+        ? { from: trend.at(points[0]!.date), to: trend.at(points.at(-1)!.date) }
+        : null,
     latest: points.at(-1)?.values.value ?? null,
     change: trend ? Math.round(trend.change * 100) / 100 : null,
   };
