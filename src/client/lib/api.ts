@@ -3,9 +3,11 @@ import { enqueue } from "./outbox.js";
 // The parsing rules are shared with the server rather than reimplemented here:
 // numeric.ts imports nothing, so the client runs the same code the data
 // layer's tests already cover.
-import { parseDecimal, parseCount, formatDecimal } from "../../data/numeric.js";
+import {
+  parseDecimal, parseCount, formatDecimal, parseDuration, formatDuration as formatSeconds,
+} from "../../data/numeric.js";
 
-export { parseDecimal };
+export { parseDecimal, parseDuration, formatSeconds };
 
 export type MetricType =
   | "bodyweight" | "bodyweight_plus" | "dumbbell"
@@ -207,8 +209,11 @@ export interface SessionView {
 export interface FieldSpec {
   key: "weight" | "reps" | "duration_s" | "distance_m" | "speed";
   label: string;
-  /** Steppers for small whole numbers; everything else is tap-to-type. */
-  kind: "stepper" | "type";
+  /**
+   * Steppers for small whole numbers, `duration` for anything measured in
+   * time, everything else tap-to-type.
+   */
+  kind: "stepper" | "type" | "duration";
   step?: number;
   /** Shown as an input, but left off a logged row when it is zero. */
   optional?: true;
@@ -231,14 +236,16 @@ export const METRIC_SET_FIELDS: Record<MetricType, FieldSpec[]> = {
   ],
   bodyweight: [{ key: "reps", label: "reps", kind: "stepper", step: 1, integer: true }],
   hold: [
-    { key: "duration_s", label: "sec", kind: "type", integer: true },
+    { key: "duration_s", label: "time", kind: "duration" },
     // Most holds carry no added weight, so the zero is not worth reading back.
     { key: "weight", label: "+kg", kind: "type", optional: true },
   ],
+  // Time and distance are what a run is; speed is the extra the machine
+  // happened to show, and is never derived from the other two.
   cardio: [
-    { key: "speed", label: "km/h", kind: "type" },
-    { key: "duration_s", label: "sec", kind: "type", integer: true },
-    { key: "distance_m", label: "m", kind: "type" },
+    { key: "duration_s", label: "time", kind: "duration", optional: true },
+    { key: "distance_m", label: "m", kind: "type", optional: true },
+    { key: "speed", label: "km/h", kind: "type", optional: true },
   ],
 };
 
@@ -315,7 +322,35 @@ export async function finishSession(id: string, notes?: string): Promise<void> {
  * then failing in the sync bar a second later.
  */
 export function parseField(raw: string, field: FieldSpec): number | null {
+  if (field.kind === "duration") return parseDuration(raw);
   return field.integer ? parseCount(raw) : parseDecimal(raw);
+}
+
+/**
+ * At least one of these must be present — mirrors `REQUIRE_ANY` in
+ * `src/data/sessions.ts`. Deliberately duplicated rather than fetched: the Log
+ * set button has to know whether it is enabled before anything is sent, the
+ * same way the program editor mirrors its own validation.
+ */
+export const REQUIRE_ANY: Partial<Record<MetricType, string[]>> = {
+  cardio: ["duration_s", "distance_m"],
+};
+
+/** Whether this set carries enough to be worth logging. */
+export function canLog(
+  metric: MetricType,
+  values: Record<string, number | null>,
+): boolean {
+  const present = (key: string) => values[key] !== null && values[key] !== undefined;
+  if (!METRIC_SET_FIELDS[metric].every((f) => f.optional || present(f.key))) return false;
+  const anyOf = REQUIRE_ANY[metric];
+  return !anyOf || anyOf.some(present);
+}
+
+/** Render one field's stored value the way that field is read. */
+export function formatField(value: number | null | undefined, field: FieldSpec): string {
+  if (value === null || value === undefined) return "";
+  return field.kind === "duration" ? formatSeconds(value) : formatDecimal(value);
 }
 
 export const formatNumber = (v: number | null | undefined): string =>

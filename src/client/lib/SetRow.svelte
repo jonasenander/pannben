@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    METRIC_SET_FIELDS, shownFields, SET_SEPARATOR, parseField, formatNumber,
+    METRIC_SET_FIELDS, shownFields, SET_SEPARATOR, parseField, formatField, canLog,
     type LoggedSet, type MetricType, type FieldSpec,
   } from "./api.js";
 
@@ -32,16 +32,19 @@
 
   function beginEdit(f: FieldSpec) {
     editing = f.key;
-    editText = formatNumber(values[f.key]);
+    editText = formatField(values[f.key], f);
   }
 
   function commitEdit(f: FieldSpec) {
     const parsed = parseField(editText, f);
+    // An emptied optional field means "I did not measure this", not "keep the
+    // old value" — that is the whole point of it being optional.
     if (parsed !== null) values = { ...values, [f.key]: parsed };
+    else if (f.optional && editText.trim() === "") values = { ...values, [f.key]: null };
     editing = null;
   }
 
-  const ready = $derived(fields.every((f) => values[f.key] !== null));
+  const ready = $derived(canLog(metricType, values));
 
   function log() {
     if (!ready) return;
@@ -59,7 +62,10 @@
     {:else}
       {#each shownFields(metricType, logged) as f, i}
         {#if i > 0}<span class="x">{SET_SEPARATOR[metricType]}</span>{/if}
-        <span class="v">{formatNumber(logged[f.key])}<i>{f.label}</i></span>
+        <!-- "20:00" says it is a time; "20:00 time" says it twice. The
+             label stays on the entry boxes, where it names which box is which. -->
+        <span class="v">{formatField(logged[f.key], f)}{#if f.kind !== "duration"}<i
+          >{f.label}</i>{/if}</span>
       {/each}
     {/if}
     <span class="end">
@@ -102,7 +108,7 @@
           </span>
         {:else}
           <button class="numf" onclick={() => beginEdit(f)}>
-            <span class="n">{values[f.key] === null ? "–" : formatNumber(values[f.key])}</span>
+            <span class="n">{values[f.key] === null ? "–" : formatField(values[f.key], f)}</span>
             <span class="u">{f.label}</span>
           </button>
         {/if}
@@ -151,7 +157,9 @@
   .entry { flex-direction: column; align-items: stretch; gap: var(--s2);
            padding: 10px; border: 1px solid var(--accent);
            border-radius: var(--r-group); background: var(--accent-soft); }
-  .line { display: flex; align-items: center; gap: var(--s2); }
+  /* Cardio puts three values on this line and they do not fit at 390px.
+     Wrapping is the fix; the row number stays put as the anchor. */
+  .line { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
   .acts { display: flex; align-items: center; gap: var(--s2); }
 
   .numf, .step { height: 48px; background: var(--surface);

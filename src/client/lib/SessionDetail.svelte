@@ -3,7 +3,7 @@
   import { flush } from "./outbox.js";
   import {
     fetchSession, updateSet, removeSet, updateSession, removeSession,
-    shownFields, SET_SEPARATOR, parseField, formatNumber, formatMinutes, formatDate,
+    shownFields, SET_SEPARATOR, parseField, formatField, formatMinutes, formatDate,
     type SessionView, type LoggedSet, type FieldSpec,
   } from "./api.js";
 
@@ -49,7 +49,7 @@
    */
   function beginEdit(set: LoggedSet, f: FieldSpec) {
     openField = `${set.id}:${f.key}`;
-    draft = formatNumber(set[f.key]);
+    draft = formatField(set[f.key], f);
   }
 
   async function commitEdit(set: LoggedSet, f: FieldSpec) {
@@ -164,10 +164,11 @@
                       </span>
                     {:else if editing}
                       <button class="numf" onclick={() => beginEdit(s, f)}>
-                        {formatNumber(s[f.key])}<i>{f.label}</i>
+                        {formatField(s[f.key], f)}<i>{f.label}</i>
                       </button>
                     {:else}
-                      <span class="v">{formatNumber(s[f.key])}<i>{f.label}</i></span>
+                      <span class="v">{formatField(s[f.key], f)}{#if f.kind !== "duration"}<i
+                        >{f.label}</i>{/if}</span>
                     {/if}
                   {/each}
                 {/if}
@@ -262,8 +263,11 @@
           display: block; }
   .exnote { font-size: 13px; line-height: 18px; color: var(--ink-muted); display: block; }
 
+  /* Cardio carries three editable values plus the action cluster, which does
+     not fit at 390px. The values wrap; the end cluster stays in the row rather
+     than being pushed out of the card. */
   .row { display: flex; align-items: center; gap: var(--s2); min-height: 44px;
-         border-top: 1px solid var(--line); }
+         border-top: 1px solid var(--line); flex-wrap: wrap; padding: 4px 0; }
   .no { font-family: var(--f-data); font-size: 13px; color: var(--ink-muted);
         width: 16px; flex: none; }
   .v, .numf { font-family: var(--f-data); font-variant-numeric: tabular-nums;
@@ -282,6 +286,7 @@
                 border: 0; padding: 0; text-align: right; }
 
   .end { margin-left: auto; display: flex; align-items: center; gap: var(--s2); flex: none; }
+  .no { align-self: center; }
   .fin { color: var(--good); font-size: 16px; font-weight: 700; }
   .none-mark { color: var(--ink-muted); }
   .tag { font-family: var(--f-ui); font-size: 11px; font-weight: 600; line-height: 15px;
