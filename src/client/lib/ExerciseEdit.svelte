@@ -5,7 +5,11 @@
     type Exercise, type MetricType,
   } from "./api.js";
 
-  let { id, ondone }: { id: string | null; ondone: () => void } = $props();
+  let { id, ondone, onchart }: {
+    id: string | null;
+    ondone: () => void;
+    onchart: (id: string) => void;
+  } = $props();
 
   const TYPES = Object.keys(METRIC_LABELS) as MetricType[];
   const blank = (): Exercise => ({
@@ -100,6 +104,10 @@
   {#if error}<p class="err">{error}</p>{/if}
 
   <button class="btn" disabled={!nameOk} onclick={save}>Save</button>
+
+  {#if id !== null}
+    <button class="btn ghost" onclick={() => onchart(id)}>Chart — progress over time</button>
+  {/if}
 
   {#if id !== null}
     {#if draft.archived_at}

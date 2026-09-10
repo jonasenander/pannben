@@ -1,15 +1,21 @@
 <script lang="ts">
   import SyncBar from "./SyncBar.svelte";
+  import Chart from "./Chart.svelte";
   import { uuidv7 } from "./uuid.js";
   import {
     fetchActiveSession, fetchPrograms, startSession, formatDuration,
-    type SessionView, type ProgramSummary,
+    fetchFavouriteCharts, formatNumber,
+    type SessionView, type ProgramSummary, type ExerciseChart,
   } from "./api.js";
 
-  let { onopen }: { onopen: (what: "session") => void } = $props();
+  let { onopen, onchart }: {
+    onopen: (what: "session") => void;
+    onchart: (exerciseId: string) => void;
+  } = $props();
 
   let active = $state<SessionView | null>(null);
   let programs = $state<ProgramSummary[]>([]);
+  let charts = $state<ExerciseChart[]>([]);
   let error = $state<string | null>(null);
   let starting = $state(false);
   let picking = $state(false);
@@ -18,6 +24,7 @@
     try {
       active = await fetchActiveSession();
       programs = (await fetchPrograms("active")).data;
+      charts = (await fetchFavouriteCharts("8w")).data;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -85,6 +92,33 @@
   {/if}
 {/if}
 
+{#if charts.length > 0}
+  <span class="eyebrow pin">Pinned</span>
+  {#each charts as chart (chart.exercise_id)}
+    {@const metric = chart.metrics[0]}
+    {@const summary = metric ? chart.summary[metric.key] : null}
+    <button class="pinned" onclick={() => onchart(chart.exercise_id)}>
+      <span class="ptop">
+        <span class="pnm">{chart.exercise_name}</span>
+        <span class="pv">
+          {summary?.latest === null || summary?.latest === undefined
+            ? "—" : formatNumber(summary.latest)}<i>{metric?.unit ?? ""}</i>
+        </span>
+      </span>
+      {#if metric}
+        <span class="plabel">{metric.label} · last 8 weeks</span>
+        <Chart points={chart.points} metricKey={metric.key} unit={metric.unit}
+          size="spark" label={`${chart.exercise_name} ${metric.label}`} />
+      {/if}
+    </button>
+  {/each}
+{:else if !picking}
+  <p class="hint">
+    No charts pinned. Open an exercise from the Exercises tab, tap
+    <b>Chart</b>, then <b>Pin to home</b> to watch it here.
+  </p>
+{/if}
+
 <style>
   .resume { background: var(--accent); color: var(--accent-ink); border-radius: var(--r-card);
             padding: 10px var(--s4); display: flex; align-items: center;
@@ -107,6 +141,26 @@
   .lrow .chev { color: var(--line-strong); }
   .nm { font-weight: 600; font-size: 16px; line-height: 23px; display: block; }
   .mt { font-size: 13px; line-height: 18px; color: var(--ink-muted); display: block; }
+
+  .pin { margin-top: var(--s3); }
+  /* A chart is a semantic unit, so it earns a card — the rows inside a list
+     are not, which is why history is one surface and this is not. */
+  .pinned {
+    display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-card); padding: var(--s3) var(--s4) var(--s2);
+  }
+  .ptop { display: flex; align-items: baseline; gap: var(--s2); }
+  .pnm {
+    font-family: var(--f-display); font-size: 16px; line-height: 22px; font-weight: 700;
+    flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pv {
+    font-family: var(--f-data); font-size: 17px; font-weight: 500;
+    color: var(--ink); flex: none;
+  }
+  .pv i { font-style: normal; font-size: 11px; color: var(--ink-muted); margin-left: 2px; }
+  .plabel { font-size: 12px; line-height: 16px; color: var(--ink-muted); }
 
   .eyebrow { font-family: var(--f-display); font-size: 12px; line-height: 15px; font-weight: 600;
              letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-muted); }

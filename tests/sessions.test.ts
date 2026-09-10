@@ -45,6 +45,21 @@ beforeEach(() => {
 const start = (c: Clock = clock, id = uuidv7()) =>
   startSession(db, { id, program_id: program }, c, ZONE);
 
+/** Attach one exercise to an existing session and return its logged_exercise id. */
+function addHold(exerciseId: string, sessionId: string): string {
+  const blockId = uuidv7();
+  const leId = uuidv7();
+  const now = clock.nowIso();
+  db.prepare("INSERT INTO session_block (id, session_id, position, type, created_at) VALUES (?,?,?,?,?)")
+    .run(blockId, sessionId, 99, "single", now);
+  db.prepare(
+    `INSERT INTO logged_exercise
+       (id, session_id, block_id, position, exercise_id, target_sets, note, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,'',?,?)`,
+  ).run(leId, sessionId, blockId, 0, exerciseId, 3, now, now);
+  return leId;
+}
+
 describe("starting", () => {
   it("snapshots the program structure", () => {
     const s = start();
@@ -192,6 +207,36 @@ describe("logging sets", () => {
   it("refuses a set on an unknown exercise", () => {
     expect(() => logSet(db, { id: uuidv7(), logged_exercise_id: uuidv7(), set_index: 0,
                               weight: 80, reps: 8 }, clock)).toThrow(ValidationError);
+  });
+});
+
+describe("optional fields", () => {
+  it("logs a plank without demanding a zero for added weight", () => {
+    const s = start();
+    const plankId = uuidv7();
+    upsertExercise(db, { id: plankId, name: "Front plank", metric_type: "hold" }, clock);
+    // Most holds carry no added weight. Requiring a number there is a demand
+    // for data that does not exist, dressed up as validation.
+    const held = logSet(db, {
+      id: uuidv7(),
+      logged_exercise_id: addHold(plankId, s.id),
+      set_index: 0,
+      duration_s: 60,
+    }, clock);
+    expect(held.duration_s).toBe(60);
+    expect(held.weight).toBeNull();
+  });
+
+  it("still refuses a hold with no duration", () => {
+    const s = start();
+    const plankId = uuidv7();
+    upsertExercise(db, { id: plankId, name: "Side plank", metric_type: "hold" }, clock);
+    expect(() => logSet(db, {
+      id: uuidv7(),
+      logged_exercise_id: addHold(plankId, s.id),
+      set_index: 0,
+      weight: 10,
+    }, clock)).toThrow(ValidationError);
   });
 });
 

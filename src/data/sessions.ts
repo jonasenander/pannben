@@ -58,6 +58,17 @@ export const FIELDS: Record<MetricType, (keyof LoggedSet)[]> = {
   hold: ["duration_s", "weight"],
 };
 
+/**
+ * Fields that may be left out entirely.
+ *
+ * Most holds carry no added weight. Requiring a number there meant a plank
+ * could not be logged without typing a zero first — a demand for data that
+ * does not exist, dressed up as validation.
+ */
+const OPTIONAL: Partial<Record<MetricType, Set<keyof LoggedSet>>> = {
+  hold: new Set(["weight"]),
+};
+
 export interface StartSessionInput {
   id: string;
   program_id?: string | null;
@@ -248,11 +259,15 @@ export function logSet(db: Database, input: LogSetInput, clock: Clock): LoggedSe
   // A skipped set records that you deliberately did not do it; demanding
   // values for it would be nonsense.
   if (!skipped) {
+    const optional = OPTIONAL[owner.metric_type];
+    const required = allowed.filter((f) => !optional?.has(f));
+
     for (const field of allowed) {
       const value = input[field as keyof LogSetInput];
       if (value === null || value === undefined) {
+        if (optional?.has(field)) continue;
         throw new ValidationError(
-          `${owner.metric_type} sets need ${allowed.join(" and ")}`,
+          `${owner.metric_type} sets need ${required.join(" and ")}`,
           field as string,
         );
       }

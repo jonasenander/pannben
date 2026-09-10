@@ -7,6 +7,7 @@
   import ProgramEdit from "./lib/ProgramEdit.svelte";
   import History from "./lib/History.svelte";
   import SessionDetail from "./lib/SessionDetail.svelte";
+  import ChartDetail from "./lib/ChartDetail.svelte";
   import Settings from "./lib/Settings.svelte";
   import { initOutbox, flush } from "./lib/outbox.js";
 
@@ -17,6 +18,7 @@
     | { name: "session-detail"; id: string }
     | { name: "exercises" }
     | { name: "exercise-edit"; id: string | null }
+    | { name: "chart"; id: string }
     | { name: "programs" }
     | { name: "program-edit"; id: string | null }
     | { name: "settings" };
@@ -29,6 +31,7 @@
     current.name === "programs" || current.name === "program-edit"
       ? "programs"
       : current.name === "exercises" || current.name === "exercise-edit"
+          || current.name === "chart"
         ? "exercises"
         : current.name === "history" || current.name === "session-detail"
           ? "history"
@@ -62,6 +65,7 @@
       case "history": return "History";
       case "session-detail": return "Session";
       case "exercises": return "Exercises";
+      case "chart": return "Chart";
       case "exercise-edit": return current.id === null ? "New exercise" : "Edit exercise";
       case "programs": return "Programs";
       case "program-edit": return current.id === null ? "New program" : "Edit program";
@@ -85,7 +89,9 @@
 
   <main class="body">
     {#if current.name === "home"}
-      <Home bind:this={home} onopen={() => go({ name: "session" })} />
+      <Home bind:this={home}
+        onopen={() => go({ name: "session" })}
+        onchart={(id) => go({ name: "chart", id })} />
     {:else if current.name === "session"}
       <ActiveSession bind:this={activeSession}
         onfinished={async () => { stack = [{ name: "home" }]; await home?.reload(); }} />
@@ -97,7 +103,10 @@
     {:else if current.name === "exercises"}
       <ExerciseList bind:this={exerciseList} onopen={(id) => go({ name: "exercise-edit", id })} />
     {:else if current.name === "exercise-edit"}
-      <ExerciseEdit id={current.id} ondone={doneEditing} />
+      <ExerciseEdit id={current.id} ondone={doneEditing}
+        onchart={(id) => go({ name: "chart", id })} />
+    {:else if current.name === "chart"}
+      <ChartDetail id={current.id} onchanged={() => home?.reload()} />
     {:else if current.name === "programs"}
       <ProgramList bind:this={programList} onopen={(id) => go({ name: "program-edit", id })} />
     {:else if current.name === "program-edit"}

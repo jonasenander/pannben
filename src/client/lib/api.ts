@@ -440,3 +440,118 @@ export function formatMinutes(seconds: number | null): string {
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
+
+// ------------------------------------------------------------------ charts
+
+export interface ChartMetric {
+  key: string;
+  label: string;
+  unit: string;
+  better: "up";
+}
+
+export interface SeriesPoint {
+  session_id: string;
+  date: string;
+  values: Record<string, number | null>;
+}
+
+export interface MetricSummary {
+  latest: number | null;
+  best: number | null;
+  /** Change across the visible range, read off the fitted trend. */
+  change: number | null;
+  slope_per_day: number | null;
+}
+
+export interface ExerciseChart {
+  exercise_id: string;
+  exercise_name: string;
+  metric_type: MetricType;
+  metrics: ChartMetric[];
+  points: SeriesPoint[];
+  summary: Record<string, MetricSummary>;
+  /** The trend as its two endpoints — the client draws, it does not fit. */
+  trend_ends: Record<string, { from: number; to: number } | null>;
+}
+
+/** 8 weeks, 6 months, or everything. Ranges are `from` bounds, computed here. */
+export type Range = "8w" | "6m" | "all";
+
+export const RANGE_LABELS: Record<Range, string> = {
+  "8w": "8 weeks", "6m": "6 months", all: "All",
+};
+
+export function rangeFrom(range: Range, today = new Date()): string | undefined {
+  if (range === "all") return undefined;
+  const d = new Date(today);
+  d.setDate(d.getDate() - (range === "8w" ? 56 : 183));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export async function fetchExerciseChart(id: string, range: Range): Promise<ExerciseChart> {
+  const from = rangeFrom(range);
+  const key = `chart:${id}:${range}`;
+  try {
+    const res = await fetch(`/api/stats/exercises/${id}${from ? `?from=${from}` : ""}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const data = (await res.json()) as ExerciseChart;
+    await cachePut(key, data);
+    return data;
+  } catch (err) {
+    const cached = await cacheGet<ExerciseChart>(key);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+/** Every pinned chart in one request — a request per sparkline would be worse. */
+export async function fetchFavouriteCharts(
+  range: Range = "8w",
+): Promise<{ data: ExerciseChart[]; stale: boolean }> {
+  const from = rangeFrom(range);
+  const key = `favourite-charts:${range}`;
+  try {
+    const res = await fetch(`/api/stats/favourites${from ? `?from=${from}` : ""}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { charts } = (await res.json()) as { charts: ExerciseChart[] };
+    await cachePut(key, charts);
+    return { data: charts, stale: false };
+  } catch (err) {
+    const cached = await cacheGet<ExerciseChart[]>(key);
+    if (cached) return { data: cached, stale: true };
+    throw err;
+  }
+}
+
+export interface Favourite {
+  id: string;
+  kind: "exercise" | "body_metric";
+  ref_id: string;
+}
+
+export async function fetchFavourites(): Promise<Favourite[]> {
+  const res = await fetch("/api/favourites");
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  return ((await res.json()) as { favourites: Favourite[] }).favourites;
+}
+
+/**
+ * Pinning is a structural edit, not something logged in a gym: it goes straight
+ * to the server so a rejection lands while the screen is still open.
+ */
+export async function saveFavourites(
+  wanted: { kind: "exercise" | "body_metric"; ref_id: string }[],
+): Promise<Favourite[]> {
+  const res = await fetch("/api/favourites", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ favourites: wanted }),
+  });
+  if (!res.ok) {
+    const d = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(d.error ?? `server returned ${res.status}`);
+  }
+  return ((await res.json()) as { favourites: Favourite[] }).favourites;
+}
