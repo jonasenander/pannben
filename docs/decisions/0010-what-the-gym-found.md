@@ -129,3 +129,48 @@ that actually differs.
 - `src/data/rounds.ts` is imported by the client from the data layer, like
   `numeric.ts`. Both are pure modules with no I/O, which is what makes that
   safe.
+
+---
+
+## Postscript — "Next round" was the wrong control entirely
+
+**Date:** 2026-09-10
+
+Reported after using it: pressing **Next round** mid-superset did something
+unexpected to the block. The exact symptom did not reproduce here, but chasing
+it found two real problems, and the second is the more interesting one.
+
+### The button was named after something it could not do
+
+Fix 1 above made rounds advance **by themselves** once every exercise has
+logged. That left the button with nothing to do called "next round" — the only
+thing it could still do was abandon the rest of the current round and jump
+forward. It was named for the automatic behaviour and implemented as the manual
+one, which is why pressing it was surprising.
+
+The honest control is the one that was actually missing: **End this superset**,
+for when two of three rounds is enough. Rounds not done are written as skipped
+sets, so history says "round 3 — not done" rather than looking like the
+superset was only ever two rounds long. Skipped sets already exist and are
+already excluded from every volume and 1RM number, so nothing downstream
+changed.
+
+The lesson is narrower than "name things well": a control whose behaviour is
+mostly automatic should not also be a manual override of that same behaviour.
+One of the two has to go.
+
+### A superset with mismatched set counts could never finish
+
+Found while reasoning about the above, and the more likely cause of the
+reported symptom.
+
+`roundsPlanned` takes the deepest `target_sets` in the block. `currentRound`
+then looked for a round some exercise had not *logged* — but an exercise given
+two sets owes nothing at the third round. So a superset of a 3-set exercise and
+a 2-set one stopped at round 2 for ever: the block never completed, and it kept
+offering a row to an exercise that had already done everything asked of it.
+
+The rule is now that an exercise owes a round only while
+`round < target_sets`, which is what `target_sets` meant all along. Four tests
+cover it, including the case where the deeper exercise genuinely does still owe
+a round and the block correctly waits.

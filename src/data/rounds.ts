@@ -33,6 +33,18 @@ const hasLogged = (ex: RoundExercise, round: number) =>
   ex.sets.some((s) => s.round_index === round);
 
 /**
+ * Whether this exercise still owes anything at this round.
+ *
+ * An exercise is only ever asked for its own `target_sets`. A superset whose
+ * two exercises were given different counts — three and two, say — plans three
+ * rounds, but the shorter one owes nothing at the third. Without this the
+ * block waited for a round nobody owed: it never finished, and it kept
+ * offering a row to an exercise that had already done everything asked of it.
+ */
+const owes = (ex: RoundExercise, round: number) =>
+  round < ex.target_sets && !hasLogged(ex, round);
+
+/**
  * The round the block is on: the lowest round at which some exercise has not
  * logged. Equal to `roundsPlanned` once every round is closed, which is what
  * "the block is done" means.
@@ -40,7 +52,7 @@ const hasLogged = (ex: RoundExercise, round: number) =>
 export function currentRound(block: RoundBlock): number {
   const planned = roundsPlanned(block);
   for (let round = 0; round < planned; round++) {
-    if (block.exercises.some((ex) => !hasLogged(ex, round))) return round;
+    if (block.exercises.some((ex) => owes(ex, round))) return round;
   }
   return planned;
 }
@@ -79,12 +91,33 @@ export function openRounds(
   const planned = roundsPlanned(block);
   const round = Math.min(opts.forcedRound ?? currentRound(block), planned - 1);
   if (round < 0 || currentRound(block) >= planned) return [];
-  return hasLogged(exercise, round) ? [] : [round];
+  return owes(exercise, round) ? [round] : [];
 }
 
-/** Whether a **Next round** button has anywhere left to go. */
-export function canAdvance(block: RoundBlock, forcedRound?: number): boolean {
-  if (block.type !== "superset") return false;
-  const at = forcedRound ?? currentRound(block);
-  return at < roundsPlanned(block) - 1;
+/**
+ * Every round each exercise still owes, for ending a superset early.
+ *
+ * Rounds advance by themselves once every exercise has logged, so a button on
+ * a superset can only ever mean "leave before the end". Ending it writes these
+ * as skipped sets: history then says "round 3 — not done" rather than looking
+ * like the superset was only ever two rounds long, and skipped sets are
+ * already left out of every volume and 1RM number.
+ *
+ * Indices rather than ids, so this stays a pure function over the structural
+ * types and the caller maps them back to its own exercises.
+ */
+export function remainingRounds(
+  block: RoundBlock,
+): { exerciseIndex: number; rounds: number[] }[] {
+  if (block.type !== "superset") return [];
+
+  const out: { exerciseIndex: number; rounds: number[] }[] = [];
+  block.exercises.forEach((ex, exerciseIndex) => {
+    const rounds: number[] = [];
+    for (let round = 0; round < ex.target_sets; round++) {
+      if (owes(ex, round)) rounds.push(round);
+    }
+    if (rounds.length > 0) out.push({ exerciseIndex, rounds });
+  });
+  return out;
 }
