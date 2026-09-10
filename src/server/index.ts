@@ -9,6 +9,7 @@ import { systemClock } from "../data/clock.js";
 import { exportAll, exportSummary } from "../data/export.js";
 import { exerciseRoutes } from "./routes/exercises.js";
 import { programRoutes } from "./routes/programs.js";
+import { sessionRoutes, setRoutes, loggedExerciseRoutes } from "./routes/sessions.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -44,6 +45,9 @@ app.get("/api/health", (c) => {
 
 app.route("/api/exercises", exerciseRoutes(db, systemClock));
 app.route("/api/programs", programRoutes(db, systemClock));
+app.route("/api/sessions", sessionRoutes(db, systemClock, ZONE));
+app.route("/api/sets", setRoutes(db, systemClock));
+app.route("/api/logged-exercises", loggedExerciseRoutes(db, systemClock));
 
 app.get("/api/export", (c) => {
   const stamp = systemClock.today(ZONE);

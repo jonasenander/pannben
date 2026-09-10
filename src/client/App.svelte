@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Home from "./lib/Home.svelte";
+  import ActiveSession from "./lib/ActiveSession.svelte";
   import ExerciseList from "./lib/ExerciseList.svelte";
   import ExerciseEdit from "./lib/ExerciseEdit.svelte";
   import ProgramList from "./lib/ProgramList.svelte";
@@ -7,20 +9,28 @@
   import { initOutbox, flush } from "./lib/outbox.js";
 
   type Screen =
+    | { name: "home" }
+    | { name: "session" }
     | { name: "exercises" }
     | { name: "exercise-edit"; id: string | null }
     | { name: "programs" }
     | { name: "program-edit"; id: string | null }
     | { name: "settings" };
 
-  type Tab = "exercises" | "programs";
+  type Tab = "home" | "exercises" | "programs";
 
-  let stack = $state<Screen[]>([{ name: "exercises" }]);
+  let stack = $state<Screen[]>([{ name: "home" }]);
   const current = $derived(stack[stack.length - 1]!);
   const tab = $derived<Tab>(
-    current.name === "programs" || current.name === "program-edit" ? "programs" : "exercises",
+    current.name === "programs" || current.name === "program-edit"
+      ? "programs"
+      : current.name === "exercises" || current.name === "exercise-edit"
+        ? "exercises"
+        : "home",
   );
 
+  let home = $state<Home | undefined>();
+  let activeSession = $state<ActiveSession | undefined>();
   let exerciseList = $state<ExerciseList | undefined>();
   let programList = $state<ProgramList | undefined>();
 
@@ -34,10 +44,15 @@
     await flush();
     await exerciseList?.reload();
     await programList?.reload();
+    await home?.reload();
   }
 
   const title = $derived(
-    current.name === "exercise-edit"
+    current.name === "home"
+      ? "Pannben"
+      : current.name === "session"
+        ? "Session"
+        : current.name === "exercise-edit"
       ? current.id === null ? "New exercise" : "Edit exercise"
       : current.name === "program-edit"
         ? current.id === null ? "New program" : "Edit program"
@@ -63,7 +78,12 @@
   </header>
 
   <main class="body">
-    {#if current.name === "exercises"}
+    {#if current.name === "home"}
+      <Home bind:this={home} onopen={() => go({ name: "session" })} />
+    {:else if current.name === "session"}
+      <ActiveSession bind:this={activeSession}
+        onfinished={async () => { stack = [{ name: "home" }]; await home?.reload(); }} />
+    {:else if current.name === "exercises"}
       <ExerciseList bind:this={exerciseList} onopen={(id) => go({ name: "exercise-edit", id })} />
     {:else if current.name === "exercise-edit"}
       <ExerciseEdit id={current.id} ondone={doneEditing} />
@@ -78,6 +98,10 @@
 
   {#if stack.length === 1}
     <nav class="tabs">
+      <button class:on={tab === "home"} onclick={() => switchTab("home")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5" /></svg>
+        Home
+      </button>
       <button class:on={tab === "exercises"} onclick={() => switchTab("exercises")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 12h16M4 18.5h16" /></svg>
         Exercises
@@ -112,7 +136,7 @@
 
   /* A flat plane. No blur, no floating capsule. */
   .tabs {
-    flex: none; display: grid; grid-template-columns: repeat(2, 1fr);
+    flex: none; display: grid; grid-template-columns: repeat(3, 1fr);
     background: var(--surface); border-top: 1px solid var(--line);
     padding: var(--s2) var(--s1) 10px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom));

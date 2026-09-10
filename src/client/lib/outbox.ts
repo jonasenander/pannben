@@ -76,9 +76,12 @@ export async function enqueue(
   void flush();
 }
 
-/** Send queued writes in the order they were made. */
-export async function flush(): Promise<void> {
-  if (state.flushing) return;
+/**
+ * Drain the queue once. Returns how many entries it resolved, so the caller
+ * can tell whether another pass is worth making.
+ */
+async function drain(): Promise<number> {
+  let resolved = 0;
   set({ flushing: true });
 
   try {
@@ -97,6 +100,7 @@ export async function flush(): Promise<void> {
 
         if (res.ok) {
           await db.delete("outbox", write.key);
+          resolved += 1;
           set({ error: null });
           continue;
         }
@@ -106,6 +110,7 @@ export async function flush(): Promise<void> {
         if (res.status >= 400 && res.status < 500) {
           const detail = await res.json().catch(() => ({}) as { error?: string });
           await db.delete("outbox", write.key);
+          resolved += 1;
           set({ error: detail.error ?? `server rejected the change (${res.status})` });
           continue;
         }
@@ -132,6 +137,41 @@ export async function flush(): Promise<void> {
   } finally {
     set({ flushing: false });
   }
+
+  return resolved;
+}
+
+/**
+ * Send everything queued, and resolve only once it has actually gone.
+ *
+ * The first version returned immediately when a flush was already running, so
+ * `await flush()` was a lie: callers read the server straight afterwards and
+ * got state from before their own write. In the logging screen that meant the
+ * next set reused the previous set's index — two sets at index 0.
+ *
+ * A concurrent caller now joins the in-flight drain rather than skipping it,
+ * and the loop keeps going while each pass is still resolving entries, so a
+ * write enqueued mid-drain is covered by the next pass.
+ */
+let inflight: Promise<void> | null = null;
+
+export function flush(): Promise<void> {
+  if (inflight) return inflight;
+
+  inflight = (async () => {
+    try {
+      for (;;) {
+        const resolved = await drain();
+        // Nothing moved: either the queue is empty or the network is down.
+        // Either way another identical pass would not help.
+        if (resolved === 0) break;
+      }
+    } finally {
+      inflight = null;
+    }
+  })();
+
+  return inflight;
 }
 
 export function dismissError(): void {

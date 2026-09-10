@@ -148,3 +148,151 @@ export async function saveProgram(program: Program): Promise<Program> {
   }
   return (await res.json()) as Program;
 }
+
+// ---------------------------------------------------------------- sessions
+
+export interface LoggedSet {
+  id: string;
+  logged_exercise_id: string;
+  set_index: number;
+  round_index: number;
+  logged_at: string;
+  skipped: boolean;
+  to_failure: boolean;
+  weight: number | null;
+  reps: number | null;
+  duration_s: number | null;
+  distance_m: number | null;
+  speed: number | null;
+}
+
+export interface LoggedExercise {
+  id: string;
+  block_id: string;
+  exercise_id: string;
+  exercise_name: string;
+  metric_type: MetricType;
+  target_sets: number;
+  note: string;
+  sets: LoggedSet[];
+}
+
+export interface SessionBlock {
+  id: string;
+  type: BlockType;
+  exercises: LoggedExercise[];
+}
+
+export interface SessionView {
+  id: string;
+  program_id: string | null;
+  program_name: string | null;
+  date: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "active" | "finished";
+  notes: string;
+  duration_s: number | null;
+  blocks: SessionBlock[];
+  prefill: Record<string, (Partial<LoggedSet> | null)[]>;
+}
+
+/** Which inputs a set shows, and how each one behaves. */
+export interface FieldSpec {
+  key: "weight" | "reps" | "duration_s" | "distance_m" | "speed";
+  label: string;
+  /** Steppers for small whole numbers; everything else is tap-to-type. */
+  kind: "stepper" | "type";
+  step?: number;
+}
+
+export const METRIC_SET_FIELDS: Record<MetricType, FieldSpec[]> = {
+  total_weight: [
+    { key: "weight", label: "kg", kind: "type" },
+    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+  ],
+  dumbbell: [
+    { key: "weight", label: "kg ea", kind: "type" },
+    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+  ],
+  bodyweight_plus: [
+    { key: "weight", label: "+kg", kind: "type" },
+    { key: "reps", label: "reps", kind: "stepper", step: 1 },
+  ],
+  bodyweight: [{ key: "reps", label: "reps", kind: "stepper", step: 1 }],
+  hold: [
+    { key: "duration_s", label: "sec", kind: "type" },
+    { key: "weight", label: "+kg", kind: "type" },
+  ],
+  cardio: [
+    { key: "speed", label: "km/h", kind: "type" },
+    { key: "duration_s", label: "sec", kind: "type" },
+    { key: "distance_m", label: "m", kind: "type" },
+  ],
+};
+
+export async function fetchActiveSession(): Promise<SessionView | null> {
+  const res = await fetch("/api/sessions/active");
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  return (await res.json()) as SessionView | null;
+}
+
+/**
+ * Create the session. Called as the first set is logged, carrying the earlier
+ * moment the program was picked — so a program opened and abandoned leaves
+ * nothing behind, but the duration still counts from when you started.
+ */
+export async function startSession(
+  id: string,
+  programId: string | null,
+  startedAt: string,
+): Promise<SessionView> {
+  const res = await fetch(`/api/sessions/${id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ program_id: programId, started_at: startedAt }),
+  });
+  if (!res.ok) {
+    const d = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(d.error ?? `server returned ${res.status}`);
+  }
+  return (await res.json()) as SessionView;
+}
+
+/** Sets go through the outbox: this is the write that happens in a basement. */
+export async function logSet(set: Partial<LoggedSet> & { id: string }): Promise<void> {
+  await enqueue("PUT", `/api/sets/${set.id}`, { ...set, updated_at: new Date().toISOString() });
+}
+
+export async function setExerciseNote(loggedExerciseId: string, note: string): Promise<void> {
+  await enqueue("PUT", `/api/logged-exercises/${loggedExerciseId}/note`, { note });
+}
+
+export async function finishSession(id: string, notes?: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${id}/finish`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+}
+
+/**
+ * Accepts a Swedish comma as readily as a point. This mirrors the data layer's
+ * rule rather than hoping the keypad cooperates.
+ */
+export function parseDecimal(raw: string): number | null {
+  const t = raw.trim();
+  if (!/^\d+(?:[.,]\d+)?$/.test(t)) return null;
+  const v = Number(t.replace(",", "."));
+  return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+}
+
+export const formatNumber = (v: number | null | undefined): string =>
+  v === null || v === undefined ? "" : String(Math.round(v * 100) / 100);
+
+export function formatDuration(seconds: number | null): string {
+  if (seconds === null) return "—";
+  const m = Math.floor(seconds / 60);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
