@@ -23,10 +23,27 @@ Runs as one container on a Synology NAS and is reachable only from the tailnet.
 
 ---
 
-## Status
+## What it does
 
-Phase 1 of 10 — **walking skeleton**. The deployment loop, the transport and the
-PWA install are proven; there is nothing to log yet. Exercises land in phase 2.
+- **Exercises** — six metric types (barbell, dumbbell, bodyweight, bodyweight
+  plus load, cardio, hold), renameable and archivable without breaking history.
+- **Programs** — blocks of single exercises or supersets, with target sets.
+- **Logging** — pick a program, log sets against a snapshot of it, superset
+  round by round. Every field prefills from the same set index of the last
+  session, so the common case is typing nothing at all.
+- **History** — find last week's session and correct the set where you typed
+  100 instead of 10.
+- **Charts** — volume, top set and estimated 1RM per exercise, with a trend
+  line fitted against calendar days rather than session count.
+- **Body metrics** — whatever you track, in whatever unit, on the home screen.
+- **Backup** — export everything as JSON; restore it in one transaction behind
+  a typed confirmation.
+
+Installed as a PWA and usable with no signal: sets, corrections and even
+starting a session are queued on the phone and land exactly once when the
+connection comes back.
+
+Still to come: a second visual pass now that real data has stressed the design.
 
 ## Stack
 

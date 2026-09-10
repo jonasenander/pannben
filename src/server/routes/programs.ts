@@ -6,6 +6,7 @@ import {
   listPrograms, getProgram, upsertProgram,
   archiveProgram, unarchiveProgram, deleteProgram,
 } from "../../data/programs.js";
+import { prefillFor } from "../../data/sessions.js";
 
 export function programRoutes(db: Database, clock: Clock): Hono {
   const app = new Hono();
@@ -13,7 +14,49 @@ export function programRoutes(db: Database, clock: Clock): Hono {
   app.get("/", (c) => {
     const raw = c.req.query("include") ?? "active";
     const include = raw === "archived" || raw === "all" ? raw : "active";
-    return c.json({ programs: listPrograms(db, include) });
+    const programs = listPrograms(db, include);
+
+    /**
+     * `?full=1` returns each program's whole tree.
+     *
+     * This exists for the gym: the app is only reachable over Tailscale, so no
+     * signal means no server at all, and starting a session needs the block
+     * structure the server would otherwise snapshot. Cached whole, it can be
+     * snapshotted on the phone instead. Three programs is a small response.
+     */
+    if (c.req.query("full") === "1") {
+      return c.json({
+        programs: programs
+          .map((p) => getProgram(db, p.id))
+          .filter((p): p is NonNullable<typeof p> => p !== null && !p.deleted_at),
+      });
+    }
+
+    return c.json({ programs });
+  });
+
+  /**
+   * What each exercise in this program looked like last time, by set index.
+   *
+   * Prefill is the reason the common case is typing nothing at all, so losing
+   * it offline would be losing most of the value. Cached alongside the program
+   * tree, an offline session starts prefilled exactly as an online one does.
+   */
+  app.get("/:id/prefill", (c) => {
+    const program = getProgram(db, c.req.param("id"));
+    if (!program || program.deleted_at) return c.json({ error: "not found" }, 404);
+
+    const prefill: Record<string, unknown[]> = {};
+    for (const block of program.blocks) {
+      for (const entry of block.entries) {
+        prefill[entry.exercise_id] = Array.from(
+          { length: Math.max(entry.target_sets, 1) + 1 },
+          // No session to exclude yet: the one being started does not exist.
+          (_, i) => prefillFor(db, entry.exercise_id, i, ""),
+        );
+      }
+    }
+    return c.json({ prefill });
   });
 
   app.get("/:id", (c) => {

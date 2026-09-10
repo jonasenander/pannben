@@ -4,8 +4,9 @@
   import BodyStrip from "./BodyStrip.svelte";
   import { uuidv7 } from "./uuid.js";
   import {
-    fetchActiveSession, fetchPrograms, startSession, formatDuration,
-    fetchFavouriteCharts, fetchBodyMetrics, formatNumber,
+    fetchActiveSession, fetchPrograms, startSession, startSessionOffline,
+    warmForOffline, formatDuration, fetchFavouriteCharts, fetchBodyMetrics,
+    formatNumber,
     type SessionView, type ProgramSummary, type ExerciseChart, type BodyMetric,
   } from "./api.js";
 
@@ -30,6 +31,9 @@
       programs = (await fetchPrograms("active")).data;
       charts = (await fetchFavouriteCharts("8w")).data;
       body = (await fetchBodyMetrics()).data;
+      error = null;
+      // Prepare for the gym while there is still a connection to prepare with.
+      void warmForOffline();
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -46,10 +50,26 @@
   async function begin(programId: string | null) {
     starting = true;
     error = null;
+    const id = uuidv7();
+    const startedAt = new Date().toISOString();
     try {
-      await startSession(uuidv7(), programId, new Date().toISOString());
+      await startSession(id, programId, startedAt);
       onopen("session");
     } catch (err) {
+      // No signal means no server at all here — the app is only reachable over
+      // Tailscale — so this is the ordinary gym case, not a failure. The phone
+      // takes the snapshot the server would have taken, from the cached
+      // program, and the write waits in the outbox.
+      if (programId !== null) {
+        try {
+          await startSessionOffline(id, programId, startedAt);
+          onopen("session");
+          return;
+        } catch (offlineErr) {
+          error = offlineErr instanceof Error ? offlineErr.message : String(offlineErr);
+          return;
+        }
+      }
       error = err instanceof Error ? err.message : String(err);
     } finally {
       starting = false;

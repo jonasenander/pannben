@@ -1,5 +1,6 @@
 import { cacheGet, cachePut } from "./idb.js";
 import { enqueue } from "./outbox.js";
+import { uuidv7 } from "./uuid.js";
 // The parsing rules are shared with the server rather than reimplemented here:
 // numeric.ts imports nothing, so the client runs the same code the data
 // layer's tests already cover.
@@ -267,10 +268,41 @@ export function shownFields(metric: MetricType, set: Partial<LoggedSet>): FieldS
   );
 }
 
+const ACTIVE_KEY = "session:active";
+
+/**
+ * The session in progress.
+ *
+ * Cached, and this is the one read where that matters most: the app is only
+ * reachable over Tailscale, so no signal in a gym means no server at all.
+ * Without a fallback here, cold-opening the app mid-workout lost the resume
+ * banner entirely and Home reported "Failed to fetch" — you could not get back
+ * into the session you were standing in the middle of.
+ */
 export async function fetchActiveSession(): Promise<SessionView | null> {
-  const res = await fetch("/api/sessions/active");
-  if (!res.ok) throw new Error(`server returned ${res.status}`);
-  return (await res.json()) as SessionView | null;
+  try {
+    const res = await fetch("/api/sessions/active");
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const data = (await res.json()) as SessionView | null;
+    await cachePut(ACTIVE_KEY, data);
+    return data;
+  } catch (err) {
+    const cached = await cacheGet<SessionView | null>(ACTIVE_KEY);
+    if (cached !== undefined) return cached;
+    throw err;
+  }
+}
+
+/**
+ * Keep the cached copy in step with what is on screen.
+ *
+ * Offline the screen is ahead of the server: sets are in the outbox, not in
+ * the database. Writing the local view back here is what lets a cold open pick
+ * up where the last one left off rather than showing a session missing every
+ * set logged since signal went.
+ */
+export async function cacheActiveSession(session: SessionView | null): Promise<void> {
+  await cachePut(ACTIVE_KEY, session);
 }
 
 /**
@@ -304,13 +336,13 @@ export async function setExerciseNote(loggedExerciseId: string, note: string): P
   await enqueue("PUT", `/api/logged-exercises/${loggedExerciseId}/note`, { note });
 }
 
+/**
+ * Queued, not sent directly: the last set of a workout is the one most likely
+ * to happen with no signal, and Finish is the tap right after it. It carries
+ * its own id, so replaying it is a no-op.
+ */
 export async function finishSession(id: string, notes?: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${id}/finish`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ notes }),
-  });
-  if (!res.ok) throw new Error(`server returned ${res.status}`);
+  await enqueue("POST", `/api/sessions/${id}/finish`, { notes: notes ?? "" });
 }
 
 /**
@@ -577,9 +609,17 @@ export interface Favourite {
 }
 
 export async function fetchFavourites(): Promise<Favourite[]> {
-  const res = await fetch("/api/favourites");
-  if (!res.ok) throw new Error(`server returned ${res.status}`);
-  return ((await res.json()) as { favourites: Favourite[] }).favourites;
+  try {
+    const res = await fetch("/api/favourites");
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { favourites } = (await res.json()) as { favourites: Favourite[] };
+    await cachePut("favourites", favourites);
+    return favourites;
+  } catch (err) {
+    const cached = await cacheGet<Favourite[]>("favourites");
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 /**
@@ -731,4 +771,109 @@ export function sinceReading(iso: string, now = new Date()): string {
   if (days < 30) return `${days} days ago`;
   const months = Math.round(days / 30);
   return months === 1 ? "a month ago" : `${months} months ago`;
+}
+
+// -------------------------------------------------------- starting offline
+
+/**
+ * The programs, whole, and what each exercise looked like last time.
+ *
+ * Warmed whenever Home is opened with signal, so a session can be started
+ * without any. The app is reachable only over Tailscale — no signal means no
+ * server, not a slow one — so anything a start needs has to already be here.
+ */
+export async function warmForOffline(): Promise<void> {
+  try {
+    const res = await fetch("/api/programs?include=active&full=1");
+    if (!res.ok) return;
+    const { programs } = (await res.json()) as { programs: Program[] };
+    await cachePut("programs:full", programs);
+
+    for (const p of programs) {
+      const pre = await fetch(`/api/programs/${p.id}/prefill`);
+      if (!pre.ok) continue;
+      const { prefill } = (await pre.json()) as { prefill: SessionView["prefill"] };
+      await cachePut(`prefill:${p.id}`, prefill);
+    }
+  } catch {
+    // Warming is best-effort: failing to prepare for offline is not an error
+    // worth showing anyone, and the next visit with signal tries again.
+  }
+}
+
+/**
+ * Build the session the server would have built, on the phone.
+ *
+ * The snapshot rule is unchanged — the structure is copied out of the program
+ * so a later program edit cannot rewrite this workout — it just happens here
+ * instead. The ids are client-minted UUIDv7s, as every id in this app is, so
+ * the queued write carries its final identity and replaying it is a no-op.
+ */
+export async function startSessionOffline(
+  id: string,
+  programId: string,
+  startedAt: string,
+): Promise<SessionView> {
+  const programs = await cacheGet<Program[]>("programs:full");
+  const program = programs?.find((p) => p.id === programId);
+  if (!program) {
+    throw new Error("that program has not been opened with a connection yet");
+  }
+  const prefill = (await cacheGet<SessionView["prefill"]>(`prefill:${programId}`)) ?? {};
+
+  const blocks: SessionBlock[] = program.blocks.map((b) => ({
+    id: uuidv7(),
+    type: b.type,
+    exercises: b.entries.map((e) => ({
+      id: uuidv7(),
+      block_id: "",
+      exercise_id: e.exercise_id,
+      exercise_name: e.exercise_name ?? "",
+      metric_type: e.metric_type ?? "total_weight",
+      target_sets: e.target_sets,
+      note: "",
+      sets: [],
+    })),
+  }));
+
+  // Prefill is keyed by logged-exercise id on the view, but cached by exercise
+  // id — the logged exercise did not exist when it was cached.
+  const byLoggedExercise: SessionView["prefill"] = {};
+  for (const b of blocks) {
+    for (const ex of b.exercises) {
+      byLoggedExercise[ex.id] = prefill[ex.exercise_id] ?? [];
+      for (const e of b.exercises) e.block_id = b.id;
+    }
+  }
+
+  const session: SessionView = {
+    id,
+    program_id: program.id,
+    program_name: program.name,
+    date: startedAt.slice(0, 10),
+    started_at: startedAt,
+    finished_at: null,
+    status: "active",
+    notes: "",
+    duration_s: null,
+    blocks,
+    prefill: byLoggedExercise,
+  };
+
+  await enqueue("PUT", `/api/sessions/${id}`, {
+    program_id: programId,
+    started_at: startedAt,
+    // The structure goes with it: the server takes `blocks` rather than
+    // snapshotting its own, so the ids the phone has been logging against are
+    // the ids that land.
+    blocks: blocks.map((b) => ({
+      id: b.id,
+      type: b.type,
+      exercises: b.exercises.map((e) => ({
+        id: e.id, exercise_id: e.exercise_id, target_sets: e.target_sets, note: "",
+      })),
+    })),
+  });
+  await cacheActiveSession(session);
+  return session;
 }
