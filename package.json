@@ -18,7 +18,8 @@
     "privacy-check": "node scripts/privacy-check.mjs",
     "backup": "node scripts/backup.mjs",
     "prepare": "node scripts/install-hooks.mjs",
-    "seed": "node scripts/seed.mjs"
+    "seed": "node scripts/seed.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
@@ -32,6 +33,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.30",
     "concurrently": "^9.1.2",
+    "sharp": "^0.35.4",
     "svelte": "^5.33.14",
     "svelte-check": "^4.2.1",
     "tsx": "^4.19.4",

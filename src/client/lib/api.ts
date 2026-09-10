@@ -485,10 +485,20 @@ export interface ChartMetric {
   better: "up";
 }
 
-export interface SeriesPoint {
-  session_id: string;
+/**
+ * The least a chart needs. An exercise series and a body-metric series are
+ * different things everywhere else, but `Chart.svelte` only ever reads a date
+ * and a value, so they meet here rather than in two near-identical components.
+ */
+export interface ChartPoint {
   date: string;
+  /** Full timestamp where one exists, so same-day points do not collapse. */
+  at?: string;
   values: Record<string, number | null>;
+}
+
+export interface SeriesPoint extends ChartPoint {
+  session_id: string;
 }
 
 export interface MetricSummary {
@@ -589,4 +599,136 @@ export async function saveFavourites(
     throw new Error(d.error ?? `server returned ${res.status}`);
   }
   return ((await res.json()) as { favourites: Favourite[] }).favourites;
+}
+
+// ------------------------------------------------------------ body metrics
+
+export interface BodyMetric {
+  id: string;
+  name: string;
+  unit: string;
+  position: number;
+  archived_at: string | null;
+  deleted_at: string | null;
+  /** The number on the strip, or null before anything is logged. */
+  latest: { value: number; measured_at: string } | null;
+  points: ChartPoint[];
+}
+
+export interface BodyReading {
+  id: string;
+  type_id: string;
+  measured_at: string;
+  value: number;
+  note: string;
+}
+
+export interface BodySeries {
+  type_id: string;
+  name: string;
+  unit: string;
+  points: ChartPoint[];
+  trend: { slope_per_day: number; change: number } | null;
+  trend_ends: { from: number; to: number } | null;
+  latest: number | null;
+  change: number | null;
+}
+
+export async function fetchBodyMetrics(
+  include: Include = "active",
+): Promise<{ data: BodyMetric[]; stale: boolean }> {
+  const key = `body-types:${include}`;
+  try {
+    const res = await fetch(`/api/body/types?include=${include}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { types } = (await res.json()) as { types: BodyMetric[] };
+    await cachePut(key, types);
+    return { data: types, stale: false };
+  } catch (err) {
+    const cached = await cacheGet<BodyMetric[]>(key);
+    if (cached) return { data: cached, stale: true };
+    throw err;
+  }
+}
+
+/** Structural, like a program save: straight to the server so a clash shows now. */
+export async function saveBodyMetric(
+  type: { id: string; name: string; unit: string },
+): Promise<BodyMetric> {
+  const res = await fetch(`/api/body/types/${type.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...type, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) {
+    const d = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(d.error ?? `server returned ${res.status}`);
+  }
+  return (await res.json()) as BodyMetric;
+}
+
+export async function bodyMetricAction(
+  id: string,
+  action: "archive" | "unarchive" | "delete",
+): Promise<void> {
+  const res = await fetch(`/api/body/types/${id}/${action}`, { method: "POST" });
+  if (!res.ok) throw new Error(`server returned ${res.status}`);
+}
+
+export async function fetchBodySeries(id: string, range: Range): Promise<BodySeries> {
+  const from = rangeFrom(range);
+  const key = `body-series:${id}:${range}`;
+  try {
+    const res = await fetch(`/api/body/types/${id}/series${from ? `?from=${from}` : ""}`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const data = (await res.json()) as BodySeries;
+    await cachePut(key, data);
+    return data;
+  } catch (err) {
+    const cached = await cacheGet<BodySeries>(key);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+export async function fetchBodyReadings(id: string): Promise<BodyReading[]> {
+  const key = `body-entries:${id}`;
+  try {
+    const res = await fetch(`/api/body/types/${id}/entries`);
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    const { entries } = (await res.json()) as { entries: BodyReading[] };
+    await cachePut(key, entries);
+    return entries;
+  } catch (err) {
+    const cached = await cacheGet<BodyReading[]>(key);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+/**
+ * A reading goes through the outbox — it is a quick write that may happen with
+ * no signal, and correcting one is the same write carrying the id it has.
+ */
+export async function saveReading(
+  entry: { id: string; type_id: string; value: number; measured_at?: string; note?: string },
+): Promise<void> {
+  await enqueue("PUT", `/api/body/entries/${entry.id}`, {
+    ...entry,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function removeReading(id: string): Promise<void> {
+  await enqueue("DELETE", `/api/body/entries/${id}`, null);
+}
+
+/** "6 days ago", "Today" — how long since the last reading, said plainly. */
+export function sinceReading(iso: string, now = new Date()): string {
+  const days = Math.floor((now.getTime() - Date.parse(iso)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return months === 1 ? "a month ago" : `${months} months ago`;
 }

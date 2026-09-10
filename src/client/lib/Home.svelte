@@ -1,21 +1,25 @@
 <script lang="ts">
   import SyncBar from "./SyncBar.svelte";
   import Chart from "./Chart.svelte";
+  import BodyStrip from "./BodyStrip.svelte";
   import { uuidv7 } from "./uuid.js";
   import {
     fetchActiveSession, fetchPrograms, startSession, formatDuration,
-    fetchFavouriteCharts, formatNumber,
-    type SessionView, type ProgramSummary, type ExerciseChart,
+    fetchFavouriteCharts, fetchBodyMetrics, formatNumber,
+    type SessionView, type ProgramSummary, type ExerciseChart, type BodyMetric,
   } from "./api.js";
 
-  let { onopen, onchart }: {
+  let { onopen, onchart, onbody, onnewbody }: {
     onopen: (what: "session") => void;
     onchart: (exerciseId: string) => void;
+    onbody: (metricId: string) => void;
+    onnewbody: () => void;
   } = $props();
 
   let active = $state<SessionView | null>(null);
   let programs = $state<ProgramSummary[]>([]);
   let charts = $state<ExerciseChart[]>([]);
+  let body = $state<BodyMetric[]>([]);
   let error = $state<string | null>(null);
   let starting = $state(false);
   let picking = $state(false);
@@ -25,6 +29,7 @@
       active = await fetchActiveSession();
       programs = (await fetchPrograms("active")).data;
       charts = (await fetchFavouriteCharts("8w")).data;
+      body = (await fetchBodyMetrics()).data;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -119,6 +124,18 @@
   </p>
 {/if}
 
+{#if body.length > 0}
+  <span class="eyebrow pin">Body</span>
+  {#each body as metric (metric.id)}
+    <BodyStrip {metric} onopen={onbody} onlogged={reload} />
+  {/each}
+{:else if !picking}
+  <!-- One quiet affordance, not a prompt. It sits where the strips will be, so
+       it is findable without ever asking for anything — which is the whole
+       brief for a thing you use once a month. -->
+  <button class="add-body" onclick={onnewbody}>+ Track a body metric</button>
+{/if}
+
 <style>
   .resume { background: var(--accent); color: var(--accent-ink); border-radius: var(--r-card);
             padding: 10px var(--s4); display: flex; align-items: center;
@@ -143,6 +160,11 @@
   .mt { font-size: 13px; line-height: 18px; color: var(--ink-muted); display: block; }
 
   .pin { margin-top: var(--s3); }
+  .add-body {
+    min-height: 44px; margin-top: var(--s2); align-self: flex-start;
+    color: var(--ink-muted); font-family: var(--f-display);
+    font-size: 14px; font-weight: 600;
+  }
   /* A chart is a semantic unit, so it earns a card — the rows inside a list
      are not, which is why history is one surface and this is not. */
   .pinned {

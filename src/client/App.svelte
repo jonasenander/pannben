@@ -8,6 +8,8 @@
   import History from "./lib/History.svelte";
   import SessionDetail from "./lib/SessionDetail.svelte";
   import ChartDetail from "./lib/ChartDetail.svelte";
+  import BodyMetric from "./lib/BodyMetric.svelte";
+  import BodyMetricEdit from "./lib/BodyMetricEdit.svelte";
   import Settings from "./lib/Settings.svelte";
   import { initOutbox, flush } from "./lib/outbox.js";
 
@@ -19,6 +21,8 @@
     | { name: "exercises" }
     | { name: "exercise-edit"; id: string | null }
     | { name: "chart"; id: string }
+    | { name: "body"; id: string }
+    | { name: "body-edit"; id: string | null }
     | { name: "programs" }
     | { name: "program-edit"; id: string | null }
     | { name: "settings" };
@@ -66,6 +70,8 @@
       case "session-detail": return "Session";
       case "exercises": return "Exercises";
       case "chart": return "Chart";
+      case "body": return "Body metric";
+      case "body-edit": return current.id === null ? "New metric" : "Edit metric";
       case "exercise-edit": return current.id === null ? "New exercise" : "Edit exercise";
       case "programs": return "Programs";
       case "program-edit": return current.id === null ? "New program" : "Edit program";
@@ -91,7 +97,9 @@
     {#if current.name === "home"}
       <Home bind:this={home}
         onopen={() => go({ name: "session" })}
-        onchart={(id) => go({ name: "chart", id })} />
+        onchart={(id) => go({ name: "chart", id })}
+        onbody={(id) => go({ name: "body", id })}
+        onnewbody={() => go({ name: "body-edit", id: null })} />
     {:else if current.name === "session"}
       <ActiveSession bind:this={activeSession}
         onfinished={async () => { stack = [{ name: "home" }]; await home?.reload(); }} />
@@ -107,6 +115,16 @@
         onchart={(id) => go({ name: "chart", id })} />
     {:else if current.name === "chart"}
       <ChartDetail id={current.id} onchanged={() => home?.reload()} />
+    {:else if current.name === "body"}
+      <BodyMetric id={current.id} onedit={(id) => go({ name: "body-edit", id })} />
+    {:else if current.name === "body-edit"}
+      <BodyMetricEdit id={current.id}
+        ondone={async () => {
+          // A deleted metric leaves nothing to go back to, so unwind to Home.
+          stack = [{ name: "home" }];
+          await flush();
+          await home?.reload();
+        }} />
     {:else if current.name === "programs"}
       <ProgramList bind:this={programList} onopen={(id) => go({ name: "program-edit", id })} />
     {:else if current.name === "program-edit"}
