@@ -20,8 +20,13 @@ export interface ExportFile {
  *
  * Soft-deleted rows are included. This is a backup, not a view: an export that
  * silently dropped rows would be worse than useless at restore time.
+ *
+ * `appVersion` defaults to "unknown" rather than to a version number. The
+ * server always passes the real one; a caller that does not (a test, a script)
+ * should say so in the file rather than stamp it with a number that was true
+ * once and then quietly stopped being true.
  */
-export function exportAll(db: Database, clock: Clock, appVersion = "0.1.0"): ExportFile {
+export function exportAll(db: Database, clock: Clock, appVersion = "unknown"): ExportFile {
   const tables: Record<string, unknown[]> = {};
 
   const names = db

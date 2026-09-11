@@ -22,6 +22,14 @@ describe("exportAll", () => {
     expect(out.exported_at).toBe("2026-09-10T07:00:00.000Z");
   });
 
+  it("says \"unknown\" rather than inventing a version when none is passed", () => {
+    // The number in an export has to come from the running app. A default that
+    // is itself a version number goes stale silently, which is how /api/health
+    // reported 0.1.0 for four phases after it stopped being true.
+    expect(exportAll(db, clock).app_version).toBe("unknown");
+    expect(exportAll(db, clock, "1.0.0").app_version).toBe("1.0.0");
+  });
+
   it("discovers tables instead of listing them, so new ones are covered", () => {
     const names = Object.keys(exportAll(db, clock).tables);
     expect(names).toContain("exercise");

@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { openDb, health } from "../data/db.js";
@@ -27,10 +27,19 @@ const HOST = process.env.PANNBEN_HOST ?? "127.0.0.1";
 /**
  * Which build this is, stamped in at image build time.
  *
- * `npm_package_version` is "0.1.0" forever, so until now there was no way to
- * answer "am I running the new one?" from the phone at all — which is exactly
- * why a stale service worker went unnoticed for four phases.
+ * Two numbers, because they answer different questions. VERSION is the release
+ * ("what is this?"); BUILD is the commit ("am I running the new one?"). Only
+ * the second one moves on every deploy, and it is the one that caught a stale
+ * service worker going unnoticed for four phases.
+ *
+ * VERSION is read from package.json on disk rather than from
+ * `npm_package_version`, because the container runs `node dist/server/index.js`
+ * directly — npm never runs, so that variable is undefined in production and a
+ * fallback literal is what would actually get served. A literal beside the real
+ * version is a literal that drifts away from it, which is how /api/health came
+ * to report 0.1.0 long after it was not.
  */
+const VERSION = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version as string;
 const BUILD = process.env.PANNBEN_BUILD ?? "dev";
 
 const db = openDb({
@@ -44,7 +53,7 @@ app.get("/api/health", (c) => {
   const h = health(db);
   return c.json({
     ok: true,
-    version: process.env.npm_package_version ?? "0.1.0",
+    version: VERSION,
     build: BUILD,
     schemaVersion: h.schemaVersion,
     dbBytes: h.dbBytes,
@@ -68,7 +77,7 @@ app.route("/api/body", bodyRoutes(db, systemClock));
 app.get("/api/export", (c) => {
   const stamp = systemClock.today(ZONE);
   c.header("Content-Disposition", `attachment; filename="pannben-export-${stamp}.json"`);
-  return c.json(exportAll(db, systemClock, process.env.npm_package_version ?? "0.1.0"));
+  return c.json(exportAll(db, systemClock, VERSION));
 });
 
 app.get("/api/export/summary", (c) => c.json(exportSummary(db)));
