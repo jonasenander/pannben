@@ -33,6 +33,12 @@ services:
       start_period: 10s
 
   # Nightly VACUUM INTO snapshot, kept for 14 days, for Hyper Backup to collect.
+  #
+  # The schedule is computed in node (scripts/backup-loop.mjs), not in the
+  # shell. It was a shell one-liner until it turned out that `date -d "tomorrow
+  # 03:00"` is a GNU form BusyBox rejects, so the sleep went negative, `sleep`
+  # refused it, and this container ran VACUUM INTO in a tight loop instead of
+  # once a night.
   pannben-backup:
     image: ghcr.io/jonasenander/pannben:latest
     container_name: pannben-backup
@@ -43,9 +49,14 @@ services:
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
       PANNBEN_DATA_DIR: /data
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      'while true; do
-         sleep $$(( $$(date -d "tomorrow 03:00" +%s 2>/dev/null || date -v+1d -j -f "%H:%M" "03:00" +%s) - $$(date +%s) ));
-         node scripts/backup.mjs || echo "backup failed";
-       done'
+    command: ["node", "scripts/backup-loop.mjs"]
+    # Overrides the image's healthcheck, which probes /api/health — in a
+    # container that runs no server it can only ever fail, which is how this one
+    # sat permanently "unhealthy" while backups were in fact being written.
+    # Health here means a snapshot exists and is recent.
+    healthcheck:
+      test: ["CMD", "node", "scripts/backup-health.mjs"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 60s
