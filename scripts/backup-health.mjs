@@ -14,6 +14,7 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { SNAPSHOT } from "./backup.mjs";
 
 const DATA_DIR = process.env.PANNBEN_DATA_DIR ?? join(process.cwd(), "data");
@@ -37,13 +38,23 @@ export function newestAgeMs(dataDir = DATA_DIR, now = Date.now()) {
   return newest === null ? null : now - newest;
 }
 
-const age = newestAgeMs();
-if (age === null) {
-  console.error("no snapshot yet");
-  process.exit(1);
+/**
+ * The probe runs only when this file is the process entry point.
+ *
+ * Without the guard, importing the module to test newestAgeMs runs the check
+ * instead — and a check that fails calls process.exit(1), taking the test
+ * runner with it. Exactly the mistake this file's sibling was written to avoid;
+ * it wanted making twice before it stuck.
+ */
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const age = newestAgeMs();
+  if (age === null) {
+    console.error("no snapshot yet");
+    process.exit(1);
+  } else if (age > MAX_AGE_MS) {
+    console.error(`newest snapshot is ${Math.round(age / 3600000)}h old`);
+    process.exit(1);
+  } else {
+    console.log(`newest snapshot is ${Math.round(age / 60000)}m old`);
+  }
 }
-if (age > MAX_AGE_MS) {
-  console.error(`newest snapshot is ${Math.round(age / 3600000)}h old`);
-  process.exit(1);
-}
-console.log(`newest snapshot is ${Math.round(age / 60000)}m old`);

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no types, same as privacy-check.test.ts
@@ -48,6 +50,30 @@ describe("msUntilNext", () => {
       expect(ms).toBeLessThanOrEqual(24 * 3600 * 1000);
     }
   });
+});
+
+/*
+ * Both of these scripts are a CLI and a module at once. The CLI half has to sit
+ * behind an entry-point guard, or importing the module runs it: backup-loop
+ * would start an endless loop, and backup-health would call process.exit(1) and
+ * take the test runner with it. The second one shipped to CI before it was
+ * caught, because a leftover gitignored data/ in the working tree happened to
+ * make the probe succeed locally.
+ */
+describe("scripts are importable without running", () => {
+  const scripts = ["backup.mjs", "backup-loop.mjs", "backup-health.mjs"];
+
+  for (const name of scripts) {
+    it(`${name} does nothing on import`, () => {
+      const url = pathToFileURL(join(process.cwd(), "scripts", name)).href;
+      const out = execFileSync(
+        process.execPath,
+        ["--input-type=module", "-e", `await import(${JSON.stringify(url)});`],
+        { encoding: "utf8", timeout: 10_000, cwd: mkdtempSync(join(tmpdir(), "pannben-cwd-")) },
+      );
+      expect(out).toBe("");
+    });
+  }
 });
 
 describe("newestAgeMs", () => {

@@ -71,6 +71,27 @@ so an hour of drift or a clock change does not raise a false alarm. The loop
 also takes one snapshot at startup, so a restart never skips a day and health
 is answerable within seconds instead of at 03:00 tomorrow.
 
+## Postscript: the same mistake, one file later
+
+`backup-health.mjs` ran its probe at module top level, so importing it to test
+`newestAgeMs` executed the check — and a failing check calls `process.exit(1)`,
+which takes the test runner down with it. The entry-point guard had been written
+for `backup-loop.mjs` twenty minutes earlier and simply not applied to its
+sibling.
+
+It passed locally and failed in CI, which is the interesting part. A leftover
+gitignored `data/backups/` in the working tree, left by an earlier run, made the
+probe succeed and exit 0 — so the import was harmless *there*. CI checks out
+clean, found no snapshot, and exited 1. Local state that CI does not have will
+hide exactly this class of bug, and "it passed on my machine" was literally true
+and completely worthless.
+
+So the invariant is now a test rather than a habit: each of these scripts is
+imported in a fresh child process, from a fresh working directory, and must
+produce no output and exit 0. Removing a guard fails it. A script that is both a
+CLI and a module has to be silent as a module, and three files needed that rule
+before one of them wrote it down.
+
 ## Consequences
 
 - A yellow warning on `pannben-backup` now means backups have actually stopped,
