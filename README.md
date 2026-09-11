@@ -21,6 +21,10 @@ no social layer, no streaks.
 
 Runs as one container on a Synology NAS and is reachable only from the tailnet.
 
+![Four screens: the home dashboard with pinned progression charts and a body
+metric, a superset being logged round by round, an exercise chart with a trend
+line, and the session history](docs/img/screens-light.png)
+
 ---
 
 ## What it does
@@ -42,6 +46,13 @@ Runs as one container on a Synology NAS and is reachable only from the tailnet.
 Installed as a PWA and usable with no signal: sets, corrections and even
 starting a session are queued on the phone and land exactly once when the
 connection comes back.
+
+![The same three screens in dark mode: a superset mid-session, an exercise
+chart, and the program editor](docs/img/screens-dark.png)
+
+Dark mode is its own palette rather than an inversion of the light one — many
+gyms are dim, and a flipped light theme reads wrong in them. Every colour is a
+token defined twice, and both were checked for contrast.
 
 Still to come: a second visual pass now that real data has stressed the design.
 

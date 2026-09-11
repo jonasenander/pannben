@@ -87,7 +87,9 @@
     {#if stack.length > 1}
       <button class="back" onclick={back} aria-label="Back">‹</button>
     {/if}
-    <h1>{title}<span class="sub">Pannben</span></h1>
+    <!-- The subtitle brands a sub-screen ("Session / Pannben"). On Home the
+         title already is the name, and "Pannben / Pannben" reads as a mistake. -->
+    <h1>{title}{#if title !== "Pannben"}<span class="sub">Pannben</span>{/if}</h1>
     {#if stack.length === 1}
       <button class="act" onclick={() => go({ name: "settings" })}>Settings</button>
     {/if}
